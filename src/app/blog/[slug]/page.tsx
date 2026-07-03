@@ -1,20 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getAllPostSlugs, getPostBySlug } from "@/lib/posts";
+import { fetchPostBySlug } from "@/lib/posts-api";
+import { getAllPostSlugs } from "@/lib/posts";
 
 type Props = {
   params: Promise<{ slug: string }>;
 };
 
-// 빌드 시 알려진 slug 페이지를 미리 생성 (선택적 학습 포인트)
+// 빌드 시 알려진 slug 페이지를 미리 생성
 export function generateStaticParams() {
   return getAllPostSlugs().map((slug) => ({ slug }));
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const post = getPostBySlug(slug);
+  const post = await fetchPostBySlug(slug);
 
   if (!post) {
     return { title: "글을 찾을 수 없음" };
@@ -28,7 +29,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params;
-  const post = getPostBySlug(slug);
+  const post = await fetchPostBySlug(slug);
 
   if (!post) {
     notFound();
