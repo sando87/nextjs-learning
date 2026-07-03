@@ -1,0 +1,10 @@
+---
+description: Next.js 학습 프로젝트 규칙
+alwaysApply: true
+---
+
+- Next.js App Router + TypeScript 사용
+- 컴포넌트는 src/components/, 페이지는 src/app/
+- 스타일은 Tailwind CSS
+- Server Component 기본, 'use client'는 필요할 때만
+- 한 파일 150줄 이하 권장, 학습용이므로 주석은 "왜" 위주로
