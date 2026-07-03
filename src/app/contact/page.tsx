@@ -20,7 +20,7 @@ export default function ContactPage() {
             <span className="font-medium text-zinc-950 dark:text-zinc-50">
               Email:{" "}
             </span>
-            tjdwn0406@gmail.com
+            sjlee0406@gmail.com
           </li>
           <li>
             <span className="font-medium text-zinc-950 dark:text-zinc-50">
