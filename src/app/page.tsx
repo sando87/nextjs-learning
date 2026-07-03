@@ -1,15 +1,21 @@
+// next/image: 이미지 최적화(지연 로딩, WebP 변환 등)를 Next.js가 대신 처리해 줌
 import Image from "next/image";
 
+// app/page.tsx → "/" 경로(홈)에 매핑되는 페이지 컴포넌트
+// 'use client'가 없으므로 Server Component: 브라우저 JS 번들에 포함되지 않음
 export default function Home() {
   return (
+    // Tailwind: flex 레이아웃 + 다크모드(prefers-color-scheme) 대응 클래스
     <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
       <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
+        {/* public/ 폴더의 파일은 "/" 기준 경로로 참조 (예: public/next.svg → /next.svg) */}
         <Image
           className="dark:invert"
           src="/next.svg"
           alt="Next.js logo"
           width={100}
           height={20}
+          // priority: LCP(첫 화면) 이미지라서 lazy load 없이 바로 로드
           priority
         />
         <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
@@ -34,11 +40,13 @@ export default function Home() {
             center.
           </p>
         </div>
+        {/* CTA 버튼 영역: sm: 이상에서 가로(row) 배치로 전환 */}
         <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
           <a
             className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
             href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
             target="_blank"
+            // 외부 링크 새 탭 열 때 보안상 rel="noopener noreferrer" 권장
             rel="noopener noreferrer"
           >
             <Image
