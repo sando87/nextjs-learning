@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import CommentForm from "@/components/CommentForm";
+import CommentList from "@/components/CommentList";
+import { getCommentsBySlug } from "@/lib/comments-store";
 import { fetchPostBySlug } from "@/lib/posts-api";
 import { getAllPostSlugs } from "@/lib/posts";
 
@@ -29,7 +32,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params;
-  const post = await fetchPostBySlug(slug);
+  const [post, comments] = await Promise.all([
+    fetchPostBySlug(slug),
+    getCommentsBySlug(slug),
+  ]);
 
   if (!post) {
     notFound();
@@ -53,6 +59,13 @@ export default async function BlogPostPage({ params }: Props) {
             {post.content}
           </p>
         </article>
+        <section className="flex flex-col gap-4 border-t border-zinc-200 pt-8 dark:border-zinc-800">
+          <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
+            댓글 {comments.length}개
+          </h2>
+          <CommentList comments={comments} />
+          <CommentForm slug={slug} />
+        </section>
         <p className="rounded-lg bg-zinc-200 px-4 py-3 text-sm text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
           현재 URL slug:{" "}
           <code className="font-mono font-semibold">{slug}</code>
