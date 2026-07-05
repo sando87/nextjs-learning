@@ -5,7 +5,9 @@ const password = process.env.SUPABASE_DB_PASSWORD;
 const projectRef = "kllcukynqnlekksdmuyr";
 
 if (!password) {
-  console.error("SUPABASE_DB_PASSWORD가 .env.local에 필요합니다.");
+  console.error(
+    "SUPABASE_DB_PASSWORD가 필요합니다 (.env.local 또는 환경 변수).",
+  );
   process.exit(1);
 }
 
