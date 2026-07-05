@@ -10,7 +10,7 @@ export default async function SupabaseHealthPage() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("health_check")
-    .select("id, message, created_at, last_viewed_at")
+    .select("id, message, type, created_at, last_viewed_at")
     .order("created_at", { ascending: false })
     .limit(5);
 
@@ -73,6 +73,12 @@ export default async function SupabaseHealthPage() {
           >
             <span className="font-medium">{row.message}</span>
             <dl className="mt-2 space-y-1 text-sm text-zinc-500">
+              <div>
+                <dt className="inline font-medium text-zinc-600 dark:text-zinc-400">
+                  타입:{" "}
+                </dt>
+                <dd className="inline">{row.type}</dd>
+              </div>
               <div>
                 <dt className="inline font-medium text-zinc-600 dark:text-zinc-400">
                   생성 시각:{" "}
