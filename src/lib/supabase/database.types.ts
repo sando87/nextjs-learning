@@ -13,16 +13,19 @@ export type Database = {
         Row: {
           created_at: string
           id: number
+          last_viewed_at: string | null
           message: string
         }
         Insert: {
           created_at?: string
           id?: never
+          last_viewed_at?: string | null
           message?: string
         }
         Update: {
           created_at?: string
           id?: never
+          last_viewed_at?: string | null
           message?: string
         }
         Relationships: []
