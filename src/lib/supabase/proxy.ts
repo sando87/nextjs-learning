@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isAuthRoute, isProtectedRoute } from "@/lib/auth/routes";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -28,8 +29,21 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // 로그인 구현 전: 세션 갱신만 수행 (리다이렉트 없음)
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+
+  if (!user && isProtectedRoute(pathname)) {
+    const loginUrl = new URL("/login", request.url);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  if (user && isAuthRoute(pathname)) {
+    const profileUrl = new URL("/profile", request.url);
+    return NextResponse.redirect(profileUrl);
+  }
 
   return supabaseResponse;
 }
