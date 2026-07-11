@@ -44,6 +44,3 @@ supabase/.temp
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-# local comment data (Server Action practice)
-/data/comments.json

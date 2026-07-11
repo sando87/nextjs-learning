@@ -1,5 +1,4 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { createClient } from "@/lib/supabase/server";
 
 export type Comment = {
   id: string;
@@ -8,27 +7,36 @@ export type Comment = {
   createdAt: string;
 };
 
-type CommentsBySlug = Record<string, Comment[]>;
+type CommentRow = {
+  id: string;
+  slug: string;
+  text: string;
+  created_at: string;
+};
 
-const COMMENTS_FILE = path.join(process.cwd(), "data", "comments.json");
-
-async function readComments(): Promise<CommentsBySlug> {
-  try {
-    const raw = await fs.readFile(COMMENTS_FILE, "utf-8");
-    return JSON.parse(raw) as CommentsBySlug;
-  } catch {
-    return {};
-  }
-}
-
-async function writeComments(comments: CommentsBySlug): Promise<void> {
-  await fs.mkdir(path.dirname(COMMENTS_FILE), { recursive: true });
-  await fs.writeFile(COMMENTS_FILE, JSON.stringify(comments, null, 2), "utf-8");
+function toComment(row: CommentRow): Comment {
+  return {
+    id: row.id,
+    slug: row.slug,
+    text: row.text,
+    createdAt: row.created_at,
+  };
 }
 
 export async function getCommentsBySlug(slug: string): Promise<Comment[]> {
-  const all = await readComments();
-  return all[slug] ?? [];
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("comments")
+    .select("id, slug, text, created_at")
+    .eq("slug", slug)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map(toComment);
 }
 
 export async function addCommentToStore(
@@ -41,16 +49,17 @@ export async function addCommentToStore(
     throw new Error("Comment text is required");
   }
 
-  const all = await readComments();
-  const comment: Comment = {
-    id: crypto.randomUUID(),
-    slug,
-    text: trimmed,
-    createdAt: new Date().toISOString(),
-  };
+  const supabase = await createClient();
 
-  all[slug] = [...(all[slug] ?? []), comment];
-  await writeComments(all);
+  const { data, error } = await supabase
+    .from("comments")
+    .insert({ slug, text: trimmed })
+    .select("id, slug, text, created_at")
+    .single();
 
-  return comment;
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return toComment(data);
 }
