@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { addCommentToStore } from "@/lib/comments-store";
 import { getPostBySlug } from "@/lib/posts";
+import { createClient } from "@/lib/supabase/server";
 
 export async function addComment(formData: FormData) {
   const slug = formData.get("slug");
@@ -16,6 +18,15 @@ export async function addComment(formData: FormData) {
     return;
   }
 
-  await addCommentToStore(slug, text);
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  await addCommentToStore(slug, text, user.id);
   revalidatePath(`/blog/${slug}`);
 }

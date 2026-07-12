@@ -27,7 +27,19 @@ export default function CommentList({ comments }: CommentListProps) {
           key={comment.id}
           className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950"
         >
-          <p className="text-sm leading-6 text-zinc-700 dark:text-zinc-300">
+          <p className="text-xs text-zinc-500">
+            {comment.userId ? (
+              <>
+                작성자:{" "}
+                <span className="break-all font-mono text-zinc-700 dark:text-zinc-300">
+                  {comment.userId}
+                </span>
+              </>
+            ) : (
+              "작성자: 익명"
+            )}
+          </p>
+          <p className="mt-2 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
             {comment.text}
           </p>
           <time

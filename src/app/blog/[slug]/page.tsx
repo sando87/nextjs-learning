@@ -6,6 +6,7 @@ import CommentList from "@/components/CommentList";
 import { getCommentsBySlug } from "@/lib/comments-store";
 import { fetchPostBySlug } from "@/lib/posts-api";
 import { getAllPostSlugs } from "@/lib/posts";
+import { createClient } from "@/lib/supabase/server";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -32,9 +33,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params;
-  const [post, comments] = await Promise.all([
+  const supabase = await createClient();
+  const [post, comments, { data: { user } }] = await Promise.all([
     fetchPostBySlug(slug),
     getCommentsBySlug(slug),
+    supabase.auth.getUser(),
   ]);
 
   if (!post) {
@@ -64,7 +67,20 @@ export default async function BlogPostPage({ params }: Props) {
             댓글 {comments.length}개
           </h2>
           <CommentList comments={comments} />
-          <CommentForm slug={slug} />
+          {user ? (
+            <CommentForm slug={slug} />
+          ) : (
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              댓글을 남기려면{" "}
+              <Link
+                href="/login"
+                className="font-medium text-zinc-950 underline dark:text-zinc-50"
+              >
+                로그인
+              </Link>
+              이 필요합니다.
+            </p>
+          )}
         </section>
         <p className="rounded-lg bg-zinc-200 px-4 py-3 text-sm text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
           현재 URL slug:{" "}

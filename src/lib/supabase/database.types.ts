@@ -15,20 +15,31 @@ export type Database = {
           id: string
           slug: string
           text: string
+          user_id: string | null
         }
         Insert: {
           created_at?: string
           id?: string
           slug: string
           text: string
+          user_id?: string | null
         }
         Update: {
           created_at?: string
           id?: string
           slug?: string
           text?: string
+          user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "comments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       health_check: {
         Row: {

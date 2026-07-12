@@ -5,6 +5,7 @@ export type Comment = {
   slug: string;
   text: string;
   createdAt: string;
+  userId: string | null;
 };
 
 type CommentRow = {
@@ -12,6 +13,7 @@ type CommentRow = {
   slug: string;
   text: string;
   created_at: string;
+  user_id: string | null;
 };
 
 function toComment(row: CommentRow): Comment {
@@ -20,6 +22,7 @@ function toComment(row: CommentRow): Comment {
     slug: row.slug,
     text: row.text,
     createdAt: row.created_at,
+    userId: row.user_id,
   };
 }
 
@@ -28,7 +31,7 @@ export async function getCommentsBySlug(slug: string): Promise<Comment[]> {
 
   const { data, error } = await supabase
     .from("comments")
-    .select("id, slug, text, created_at")
+    .select("id, slug, text, created_at, user_id")
     .eq("slug", slug)
     .order("created_at", { ascending: true });
 
@@ -42,6 +45,7 @@ export async function getCommentsBySlug(slug: string): Promise<Comment[]> {
 export async function addCommentToStore(
   slug: string,
   text: string,
+  userId: string,
 ): Promise<Comment> {
   const trimmed = text.trim();
 
@@ -53,8 +57,8 @@ export async function addCommentToStore(
 
   const { data, error } = await supabase
     .from("comments")
-    .insert({ slug, text: trimmed })
-    .select("id, slug, text, created_at")
+    .insert({ slug, text: trimmed, user_id: userId })
+    .select("id, slug, text, created_at, user_id")
     .single();
 
   if (error) {
