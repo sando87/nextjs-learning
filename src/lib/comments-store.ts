@@ -6,6 +6,7 @@ export type Comment = {
   text: string;
   createdAt: string;
   userId: string | null;
+  authorName: string | null;
 };
 
 type CommentRow = {
@@ -14,6 +15,7 @@ type CommentRow = {
   text: string;
   created_at: string;
   user_id: string | null;
+  author_name: string | null;
 };
 
 function toComment(row: CommentRow): Comment {
@@ -23,7 +25,20 @@ function toComment(row: CommentRow): Comment {
     text: row.text,
     createdAt: row.created_at,
     userId: row.user_id,
+    authorName: row.author_name,
   };
+}
+
+// 이메일이면 @ 앞부분만, 아니면 UUID 앞 8자
+export function toAuthorName(
+  email: string | undefined,
+  userId: string,
+): string {
+  if (email?.includes("@")) {
+    return email.split("@")[0];
+  }
+
+  return userId.slice(0, 8);
 }
 
 export async function getCommentsBySlug(slug: string): Promise<Comment[]> {
@@ -31,7 +46,7 @@ export async function getCommentsBySlug(slug: string): Promise<Comment[]> {
 
   const { data, error } = await supabase
     .from("comments")
-    .select("id, slug, text, created_at, user_id")
+    .select("id, slug, text, created_at, user_id, author_name")
     .eq("slug", slug)
     .order("created_at", { ascending: true });
 
@@ -46,6 +61,7 @@ export async function addCommentToStore(
   slug: string,
   text: string,
   userId: string,
+  authorName: string,
 ): Promise<Comment> {
   const trimmed = text.trim();
 
@@ -57,8 +73,13 @@ export async function addCommentToStore(
 
   const { data, error } = await supabase
     .from("comments")
-    .insert({ slug, text: trimmed, user_id: userId })
-    .select("id, slug, text, created_at, user_id")
+    .insert({
+      slug,
+      text: trimmed,
+      user_id: userId,
+      author_name: authorName,
+    })
+    .select("id, slug, text, created_at, user_id, author_name")
     .single();
 
   if (error) {

@@ -11,6 +11,7 @@ export type Database = {
     Tables: {
       comments: {
         Row: {
+          author_name: string | null
           created_at: string
           id: string
           slug: string
@@ -18,6 +19,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          author_name?: string | null
           created_at?: string
           id?: string
           slug: string
@@ -25,6 +27,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          author_name?: string | null
           created_at?: string
           id?: string
           slug?: string

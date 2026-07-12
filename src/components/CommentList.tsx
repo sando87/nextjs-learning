@@ -11,9 +11,16 @@ function formatDate(iso: string): string {
   }).format(new Date(iso));
 }
 
-// UUID 앞 8자만 표시 — 전체 ID는 title 속성으로 확인 가능
-function formatShortUserId(userId: string): string {
-  return userId.slice(0, 8);
+function getAuthorLabel(comment: Comment): string {
+  if (comment.authorName) {
+    return comment.authorName;
+  }
+
+  if (comment.userId) {
+    return comment.userId.slice(0, 8);
+  }
+
+  return "익명";
 }
 
 export default function CommentList({ comments }: CommentListProps) {
@@ -33,19 +40,13 @@ export default function CommentList({ comments }: CommentListProps) {
           className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950"
         >
           <p className="text-xs text-zinc-500">
-            {comment.userId ? (
-              <>
-                작성자:{" "}
-                <span
-                  title={comment.userId}
-                  className="font-mono text-zinc-700 dark:text-zinc-300"
-                >
-                  {formatShortUserId(comment.userId)}
-                </span>
-              </>
-            ) : (
-              "작성자: 익명"
-            )}
+            작성자:{" "}
+            <span
+              title={comment.userId ?? undefined}
+              className="font-medium text-zinc-700 dark:text-zinc-300"
+            >
+              {getAuthorLabel(comment)}
+            </span>
           </p>
           <p className="mt-2 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
             {comment.text}

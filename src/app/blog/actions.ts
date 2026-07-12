@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { addCommentToStore } from "@/lib/comments-store";
+import { addCommentToStore, toAuthorName } from "@/lib/comments-store";
 import { getPostBySlug } from "@/lib/posts";
 import { createClient } from "@/lib/supabase/server";
 
@@ -27,6 +27,11 @@ export async function addComment(formData: FormData) {
     redirect("/login");
   }
 
-  await addCommentToStore(slug, text, user.id);
+  await addCommentToStore(
+    slug,
+    text,
+    user.id,
+    toAuthorName(user.email, user.id),
+  );
   revalidatePath(`/blog/${slug}`);
 }
