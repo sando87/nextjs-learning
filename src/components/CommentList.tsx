@@ -11,6 +11,11 @@ function formatDate(iso: string): string {
   }).format(new Date(iso));
 }
 
+// UUID 앞 8자만 표시 — 전체 ID는 title 속성으로 확인 가능
+function formatShortUserId(userId: string): string {
+  return userId.slice(0, 8);
+}
+
 export default function CommentList({ comments }: CommentListProps) {
   if (comments.length === 0) {
     return (
@@ -31,8 +36,11 @@ export default function CommentList({ comments }: CommentListProps) {
             {comment.userId ? (
               <>
                 작성자:{" "}
-                <span className="break-all font-mono text-zinc-700 dark:text-zinc-300">
-                  {comment.userId}
+                <span
+                  title={comment.userId}
+                  className="font-mono text-zinc-700 dark:text-zinc-300"
+                >
+                  {formatShortUserId(comment.userId)}
                 </span>
               </>
             ) : (
