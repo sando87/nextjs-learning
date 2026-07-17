@@ -1,4 +1,4 @@
-export const PROTECTED_ROUTES = ["/profile"] as const;
+export const PROTECTED_ROUTES = ["/profile", "/schedule"] as const;
 export const AUTH_ROUTES = ["/login", "/signup"] as const;
 
 export function isProtectedRoute(pathname: string) {

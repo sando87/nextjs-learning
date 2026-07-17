@@ -1,0 +1,403 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { addProjectMember, removeProjectMember } from "@/lib/schedule/members-store";
+import { addTaskLink, removeTaskLink } from "@/lib/schedule/links-store";
+import {
+  requireProjectMember,
+  requireProjectOwner,
+  requireUser,
+} from "@/lib/schedule/permissions";
+import { findProfileByEmail } from "@/lib/schedule/profiles-store";
+import {
+  createProject,
+  deleteProject,
+  updateProject,
+} from "@/lib/schedule/projects-store";
+import { createTag, deleteTag, setTaskTags } from "@/lib/schedule/tags-store";
+import {
+  createTask,
+  deleteTask,
+  updateTask,
+} from "@/lib/schedule/tasks-store";
+import {
+  TASK_STATUSES,
+  type TaskStatus,
+} from "@/lib/schedule/types";
+
+function revalidateSchedule(projectId?: string) {
+  revalidatePath("/schedule");
+  if (projectId) {
+    revalidatePath(`/schedule/${projectId}`);
+    revalidatePath(`/schedule/${projectId}/settings`);
+  }
+}
+
+export async function createProjectAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const name = formData.get("name");
+  const startDate = formData.get("startDate");
+
+  if (typeof name !== "string") return;
+
+  const date =
+    typeof startDate === "string" && startDate
+      ? startDate
+      : new Date().toISOString().slice(0, 10);
+
+  const project = await createProject(name, user.id, date);
+  revalidateSchedule();
+  redirect(`/schedule/${project.id}`);
+}
+
+export async function deleteProjectAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  if (typeof projectId !== "string") return;
+
+  const isOwner = await requireProjectOwner(projectId, user.id);
+  if (!isOwner) throw new Error("프로젝트 소유자만 삭제할 수 있습니다");
+
+  await deleteProject(projectId);
+  revalidateSchedule();
+  redirect("/schedule");
+}
+
+export async function updateProjectAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const name = formData.get("name");
+  const startDate = formData.get("startDate");
+
+  if (typeof projectId !== "string") return;
+
+  const isOwner = await requireProjectOwner(projectId, user.id);
+  if (!isOwner) throw new Error("프로젝트 소유자만 수정할 수 있습니다");
+
+  await updateProject(projectId, {
+    name: typeof name === "string" ? name : undefined,
+    startDate: typeof startDate === "string" ? startDate : undefined,
+  });
+
+  revalidateSchedule(projectId);
+}
+
+export type MemberActionState = {
+  error?: string;
+};
+
+export async function addMemberAction(
+  _prevState: MemberActionState,
+  formData: FormData,
+): Promise<MemberActionState> {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const email = formData.get("email");
+
+  if (typeof projectId !== "string" || typeof email !== "string") {
+    return { error: "입력값이 올바르지 않습니다." };
+  }
+
+  const isOwner = await requireProjectOwner(projectId, user.id);
+  if (!isOwner) {
+    return { error: "프로젝트 소유자만 멤버를 추가할 수 있습니다." };
+  }
+
+  const profile = await findProfileByEmail(email);
+  if (!profile) {
+    return {
+      error:
+        "등록된 사용자만 추가할 수 있습니다. 상대방이 먼저 회원가입해야 합니다.",
+    };
+  }
+
+  try {
+    await addProjectMember(projectId, profile);
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error ? error.message : "멤버 추가에 실패했습니다.",
+    };
+  }
+
+  revalidateSchedule(projectId);
+  return {};
+}
+
+export async function removeMemberAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const memberId = formData.get("memberId");
+
+  if (typeof projectId !== "string" || typeof memberId !== "string") return;
+
+  const isOwner = await requireProjectOwner(projectId, user.id);
+  if (!isOwner) throw new Error("프로젝트 소유자만 멤버를 삭제할 수 있습니다");
+
+  await removeProjectMember(memberId);
+  revalidateSchedule(projectId);
+}
+
+export async function createTaskAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const title = formData.get("title");
+
+  if (typeof projectId !== "string" || typeof title !== "string") return;
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 업무를 추가할 수 있습니다");
+
+  const assigneeId = formData.get("assigneeId");
+  const status = formData.get("status");
+  const startDate = formData.get("startDate");
+  const endDate = formData.get("endDate");
+  const priority = formData.get("priority");
+
+  const task = await createTask({
+    projectId,
+    title,
+    assigneeId:
+      typeof assigneeId === "string" && assigneeId ? assigneeId : null,
+    status:
+      typeof status === "string" &&
+      TASK_STATUSES.includes(status as TaskStatus)
+        ? (status as TaskStatus)
+        : "planned",
+    startDate:
+      typeof startDate === "string" && startDate ? startDate : null,
+    endDate: typeof endDate === "string" && endDate ? endDate : null,
+    priority:
+      typeof priority === "string" && priority ? Number(priority) : 100,
+  });
+
+  const tagIds = formData.getAll("tagIds");
+  if (tagIds.length > 0) {
+    await setTaskTags(
+      task.id,
+      tagIds.filter((id): id is string => typeof id === "string"),
+    );
+  }
+
+  revalidateSchedule(projectId);
+}
+
+export async function updateTaskAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const taskId = formData.get("taskId");
+
+  if (typeof projectId !== "string" || typeof taskId !== "string") return;
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 업무를 수정할 수 있습니다");
+
+  const title = formData.get("title");
+  const assigneeId = formData.get("assigneeId");
+  const status = formData.get("status");
+  const startDate = formData.get("startDate");
+  const endDate = formData.get("endDate");
+  const priority = formData.get("priority");
+
+  await updateTask(taskId, {
+    title: typeof title === "string" ? title : undefined,
+    assigneeId:
+      assigneeId === ""
+        ? null
+        : typeof assigneeId === "string"
+          ? assigneeId
+          : undefined,
+    status:
+      typeof status === "string" &&
+      TASK_STATUSES.includes(status as TaskStatus)
+        ? (status as TaskStatus)
+        : undefined,
+    startDate:
+      startDate === ""
+        ? null
+        : typeof startDate === "string"
+          ? startDate
+          : undefined,
+    endDate:
+      endDate === ""
+        ? null
+        : typeof endDate === "string"
+          ? endDate
+          : undefined,
+    priority:
+      typeof priority === "string" && priority ? Number(priority) : undefined,
+  });
+
+  revalidateSchedule(projectId);
+}
+
+export async function deleteTaskAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const taskId = formData.get("taskId");
+
+  if (typeof projectId !== "string" || typeof taskId !== "string") return;
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 업무를 삭제할 수 있습니다");
+
+  await deleteTask(taskId);
+  revalidateSchedule(projectId);
+}
+
+export async function createTagAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const name = formData.get("name");
+  const color = formData.get("color");
+
+  if (typeof projectId !== "string" || typeof name !== "string") return;
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 태그를 추가할 수 있습니다");
+
+  await createTag(
+    projectId,
+    name,
+    typeof color === "string" && color ? color : "#71717a",
+  );
+  revalidateSchedule(projectId);
+}
+
+export async function deleteTagAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const tagId = formData.get("tagId");
+
+  if (typeof projectId !== "string" || typeof tagId !== "string") return;
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 태그를 삭제할 수 있습니다");
+
+  await deleteTag(tagId);
+  revalidateSchedule(projectId);
+}
+
+export async function setTaskTagsAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const taskId = formData.get("taskId");
+  const tagIds = formData.getAll("tagIds");
+
+  if (typeof projectId !== "string" || typeof taskId !== "string") return;
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 태그를 설정할 수 있습니다");
+
+  await setTaskTags(
+    taskId,
+    tagIds.filter((id): id is string => typeof id === "string"),
+  );
+  revalidateSchedule(projectId);
+}
+
+export async function addTaskLinkAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const sourceTaskId = formData.get("sourceTaskId");
+  const targetTaskId = formData.get("targetTaskId");
+
+  if (
+    typeof projectId !== "string" ||
+    typeof sourceTaskId !== "string" ||
+    typeof targetTaskId !== "string"
+  ) {
+    return;
+  }
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 업무를 연결할 수 있습니다");
+
+  await addTaskLink(sourceTaskId, targetTaskId);
+  revalidateSchedule(projectId);
+}
+
+export async function removeTaskLinkAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const sourceTaskId = formData.get("sourceTaskId");
+  const targetTaskId = formData.get("targetTaskId");
+
+  if (
+    typeof projectId !== "string" ||
+    typeof sourceTaskId !== "string" ||
+    typeof targetTaskId !== "string"
+  ) {
+    return;
+  }
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 업무 연결을 해제할 수 있습니다");
+
+  await removeTaskLink(sourceTaskId, targetTaskId);
+  revalidateSchedule(projectId);
+}
+
+export async function quickUpdateTaskAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const taskId = formData.get("taskId");
+  const field = formData.get("field");
+  const value = formData.get("value");
+
+  if (
+    typeof projectId !== "string" ||
+    typeof taskId !== "string" ||
+    typeof field !== "string"
+  ) {
+    return;
+  }
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 업무를 수정할 수 있습니다");
+
+  const updates: Parameters<typeof updateTask>[1] = {};
+
+  if (field === "title" && typeof value === "string") {
+    updates.title = value;
+  } else if (field === "status" && typeof value === "string") {
+    if (TASK_STATUSES.includes(value as TaskStatus)) {
+      updates.status = value as TaskStatus;
+    }
+  } else if (field === "assigneeId") {
+    updates.assigneeId =
+      typeof value === "string" && value ? value : null;
+  }
+
+  await updateTask(taskId, updates);
+  revalidateSchedule(projectId);
+}
