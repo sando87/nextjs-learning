@@ -1,0 +1,24 @@
+{
+  "dynamic-routing": [
+    {
+      "id": "16ef3322-b7a7-4764-9fd5-d6ba06f0464f",
+      "slug": "dynamic-routing",
+      "text": "sjlee first comment",
+      "createdAt": "2026-07-03T07:24:35.075Z"
+    },
+    {
+      "id": "f346408b-d435-4e1f-837e-e758defd8636",
+      "slug": "dynamic-routing",
+      "text": "sec",
+      "createdAt": "2026-07-03T07:24:43.813Z"
+    }
+  ],
+  "server-components": [
+    {
+      "id": "33563984-dcaa-440e-884f-1a2a220f6362",
+      "slug": "server-components",
+      "text": "asdfasfd",
+      "createdAt": "2026-07-03T07:25:00.487Z"
+    }
+  ]
+}
