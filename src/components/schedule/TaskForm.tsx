@@ -242,14 +242,6 @@ export default function TaskForm({
             </fieldset>
           ) : null}
 
-          {isEdit && task ? (
-            <WorkLogSection
-              projectId={projectId}
-              taskId={task.id}
-              workLogs={task.workLogs}
-            />
-          ) : null}
-
           <div className="mt-2 flex flex-wrap gap-2">
             <button
               type="submit"
@@ -277,6 +269,17 @@ export default function TaskForm({
             ) : null}
           </div>
         </form>
+
+        {/* form 중첩 금지: 작업시간 UI는 업무 form 바깥에 둔다 */}
+        {isEdit && task ? (
+          <div className="mt-4">
+            <WorkLogSection
+              projectId={projectId}
+              taskId={task.id}
+              workLogs={task.workLogs}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

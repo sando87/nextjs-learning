@@ -7,7 +7,7 @@ import {
 import { workLogDurationHours } from "@/lib/schedule/work-log-utils";
 import type { WorkLog } from "@/lib/schedule/types";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 type WorkLogSectionProps = {
   projectId: string;
@@ -16,6 +16,14 @@ type WorkLogSectionProps = {
 };
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
+
+function localToday(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 
 function formatLogLabel(log: WorkLog): string {
   const start = log.startedAt;
@@ -38,25 +46,46 @@ export default function WorkLogSection({
   workLogs,
 }: WorkLogSectionProps) {
   const router = useRouter();
+  const [extraLogs, setExtraLogs] = useState<WorkLog[]>([]);
+  const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState(localToday);
+  const [endDate, setEndDate] = useState(localToday);
+  const [startHour, setStartHour] = useState(9);
+  const [endHour, setEndHour] = useState(11);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const total = workLogs.reduce(
+  const logs = useMemo(() => {
+    const known = new Set(workLogs.map((log) => log.id));
+    const merged = [
+      ...workLogs,
+      ...extraLogs.filter((log) => !known.has(log.id)),
+    ].filter((log) => !removedIds.includes(log.id));
+    return merged.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  }, [workLogs, extraLogs, removedIds]);
+
+  const total = logs.reduce(
     (sum, log) => sum + workLogDurationHours(log.startedAt, log.endedAt),
     0,
   );
 
-  async function handleAdd(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function handleAdd() {
     setPending(true);
     setError(null);
-    const fd = new FormData(e.currentTarget);
+    const fd = new FormData();
     fd.set("projectId", projectId);
     fd.set("taskId", taskId);
+    fd.set("startDate", startDate);
+    fd.set("endDate", endDate);
+    fd.set("startHour", String(startHour));
+    fd.set("endHour", String(endHour));
     try {
-      await createWorkLogAction(fd);
-      e.currentTarget.reset();
+      const result = await createWorkLogAction(fd);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setExtraLogs((prev) => [...prev, result.workLog]);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "추가에 실패했습니다");
@@ -68,13 +97,20 @@ export default function WorkLogSection({
   async function handleDelete(workLogId: string) {
     setPending(true);
     setError(null);
+    setRemovedIds((prev) => [...prev, workLogId]);
     const fd = new FormData();
     fd.set("projectId", projectId);
     fd.set("workLogId", workLogId);
     try {
-      await deleteWorkLogAction(fd);
+      const result = await deleteWorkLogAction(fd);
+      if (!result.ok) {
+        setRemovedIds((prev) => prev.filter((id) => id !== workLogId));
+        setError(result.error);
+        return;
+      }
       router.refresh();
     } catch (err) {
+      setRemovedIds((prev) => prev.filter((id) => id !== workLogId));
       setError(err instanceof Error ? err.message : "삭제에 실패했습니다");
     } finally {
       setPending(false);
@@ -88,9 +124,9 @@ export default function WorkLogSection({
         <span className="text-xs text-zinc-500">합계 {total}h</span>
       </div>
 
-      {workLogs.length > 0 ? (
+      {logs.length > 0 ? (
         <ul className="mb-3 max-h-36 space-y-1 overflow-y-auto">
-          {workLogs.map((log) => (
+          {logs.map((log) => (
             <li
               key={log.id}
               className="flex items-center justify-between gap-2 text-xs"
@@ -111,22 +147,21 @@ export default function WorkLogSection({
         <p className="mb-3 text-xs text-zinc-500">기록이 없습니다.</p>
       )}
 
-      <form onSubmit={handleAdd} className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <label className="flex flex-col gap-1 text-xs">
           <span>시작일</span>
           <input
             type="date"
-            name="startDate"
-            required
-            defaultValue={today}
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
             className="rounded border border-zinc-300 px-2 py-1.5 dark:border-zinc-700 dark:bg-black"
           />
         </label>
         <label className="flex flex-col gap-1 text-xs">
           <span>시작 시</span>
           <select
-            name="startHour"
-            defaultValue={9}
+            value={startHour}
+            onChange={(e) => setStartHour(Number(e.target.value))}
             className="rounded border border-zinc-300 px-2 py-1.5 dark:border-zinc-700 dark:bg-black"
           >
             {HOURS.map((h) => (
@@ -140,17 +175,16 @@ export default function WorkLogSection({
           <span>종료일</span>
           <input
             type="date"
-            name="endDate"
-            required
-            defaultValue={today}
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
             className="rounded border border-zinc-300 px-2 py-1.5 dark:border-zinc-700 dark:bg-black"
           />
         </label>
         <label className="flex flex-col gap-1 text-xs">
           <span>종료 시</span>
           <select
-            name="endHour"
-            defaultValue={11}
+            value={endHour}
+            onChange={(e) => setEndHour(Number(e.target.value))}
             className="rounded border border-zinc-300 px-2 py-1.5 dark:border-zinc-700 dark:bg-black"
           >
             {HOURS.map((h) => (
@@ -161,13 +195,14 @@ export default function WorkLogSection({
           </select>
         </label>
         <button
-          type="submit"
+          type="button"
           disabled={pending}
+          onClick={() => void handleAdd()}
           className="col-span-2 rounded-full border border-zinc-300 px-3 py-1.5 text-xs disabled:opacity-50 dark:border-zinc-700"
         >
           {pending ? "처리 중..." : "작업시간 추가"}
         </button>
-      </form>
+      </div>
 
       {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
     </section>

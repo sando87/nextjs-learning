@@ -415,7 +415,13 @@ function parseHourField(value: FormDataEntryValue | null): number | null {
   return hour;
 }
 
-export async function createWorkLogAction(formData: FormData) {
+export type WorkLogActionResult =
+  | { ok: true; workLog: Awaited<ReturnType<typeof createWorkLog>> }
+  | { ok: false; error: string };
+
+export async function createWorkLogAction(
+  formData: FormData,
+): Promise<WorkLogActionResult> {
   const user = await requireUser();
   if (!user) redirect("/login");
 
@@ -435,20 +441,30 @@ export async function createWorkLogAction(formData: FormData) {
     startHour === null ||
     endHour === null
   ) {
-    throw new Error("작업시간 입력값이 올바르지 않습니다");
+    return { ok: false, error: "작업시간 입력값이 올바르지 않습니다" };
   }
 
   const isMember = await requireProjectMember(projectId, user.id);
-  if (!isMember) throw new Error("프로젝트 멤버만 작업시간을 기록할 수 있습니다");
+  if (!isMember) {
+    return { ok: false, error: "프로젝트 멤버만 작업시간을 기록할 수 있습니다" };
+  }
 
-  await createWorkLog({
-    taskId,
-    startedAt: toHourTimestamp(startDate, startHour),
-    endedAt: toHourTimestamp(endDate, endHour),
-    note: typeof note === "string" ? note : null,
-  });
-
-  revalidateSchedule(projectId);
+  try {
+    const workLog = await createWorkLog({
+      taskId,
+      startedAt: toHourTimestamp(startDate, startHour),
+      endedAt: toHourTimestamp(endDate, endHour),
+      note: typeof note === "string" ? note : null,
+    });
+    revalidateSchedule(projectId);
+    return { ok: true, workLog };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error ? error.message : "작업시간 추가에 실패했습니다",
+    };
+  }
 }
 
 export async function updateWorkLogAction(formData: FormData) {
@@ -486,18 +502,33 @@ export async function updateWorkLogAction(formData: FormData) {
   revalidateSchedule(projectId);
 }
 
-export async function deleteWorkLogAction(formData: FormData) {
+export async function deleteWorkLogAction(
+  formData: FormData,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const user = await requireUser();
   if (!user) redirect("/login");
 
   const projectId = formData.get("projectId");
   const workLogId = formData.get("workLogId");
 
-  if (typeof projectId !== "string" || typeof workLogId !== "string") return;
+  if (typeof projectId !== "string" || typeof workLogId !== "string") {
+    return { ok: false, error: "작업시간 입력값이 올바르지 않습니다" };
+  }
 
   const isMember = await requireProjectMember(projectId, user.id);
-  if (!isMember) throw new Error("프로젝트 멤버만 작업시간을 삭제할 수 있습니다");
+  if (!isMember) {
+    return { ok: false, error: "프로젝트 멤버만 작업시간을 삭제할 수 있습니다" };
+  }
 
-  await deleteWorkLog(workLogId);
-  revalidateSchedule(projectId);
+  try {
+    await deleteWorkLog(workLogId);
+    revalidateSchedule(projectId);
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error ? error.message : "작업시간 삭제에 실패했습니다",
+    };
+  }
 }
