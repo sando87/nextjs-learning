@@ -1,11 +1,11 @@
-import type { TimelineColumn, ViewMode } from "./types";
+import type { TimelineColumn, ViewMode, WorkLog } from "./types";
 
 function parseDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d);
 }
 
-function formatDate(date: Date): string {
+function formatDateStr(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
@@ -38,12 +38,86 @@ function endOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
 
+function parseDateTime(value: string): Date {
+  const normalized = value.trim().replace(" ", "T");
+  const [datePart, timePart = "00:00:00"] = normalized.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm = "0", ss = "0"] = timePart.split(":");
+  return new Date(y, m - 1, d, Number(hh), Number(mm), Number(ss));
+}
+
+function latestBound(
+  taskEndDates: (string | null)[],
+  workLogEndAts: string[],
+): Date | null {
+  const dates = [
+    ...taskEndDates.filter((d): d is string => d !== null).map(parseDate),
+    ...workLogEndAts.map((v) => {
+      const dt = parseDateTime(v);
+      // ended_at이 정시면 그날까지 컬럼이 필요 (00:00이면 전날까지만)
+      if (
+        dt.getHours() === 0 &&
+        dt.getMinutes() === 0 &&
+        dt.getSeconds() === 0
+      ) {
+        return addDays(dt, -1);
+      }
+      return dt;
+    }),
+  ];
+  if (dates.length === 0) return null;
+  return dates.sort((a, b) => b.getTime() - a.getTime())[0];
+}
+
+function generateHourColumns(
+  projectStartDate: string,
+  taskEndDates: (string | null)[],
+  workLogEndAts: string[],
+  dayCount = 7,
+): TimelineColumn[] {
+  const start = parseDate(projectStartDate);
+  const latest = latestBound(taskEndDates, workLogEndAts);
+  let days = dayCount;
+  if (latest) {
+    const span =
+      Math.ceil((latest.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) +
+      1;
+    days = Math.max(dayCount, span);
+  }
+
+  const columns: TimelineColumn[] = [];
+  for (let d = 0; d < days; d++) {
+    const day = addDays(start, d);
+    const dateStr = formatDateStr(day);
+    for (let hour = 0; hour < 24; hour++) {
+      columns.push({
+        key: `${dateStr}T${String(hour).padStart(2, "0")}`,
+        label: hour === 0 ? `${day.getMonth() + 1}/${day.getDate()} ${hour}` : String(hour).padStart(2, "0"),
+        startDate: dateStr,
+        endDate: dateStr,
+        hour,
+      });
+    }
+  }
+  return columns;
+}
+
 export function generateTimelineColumns(
   viewMode: ViewMode,
   projectStartDate: string,
   taskEndDates: (string | null)[],
   count = 14,
+  workLogEndAts: string[] = [],
 ): TimelineColumn[] {
+  if (viewMode === "hour") {
+    return generateHourColumns(
+      projectStartDate,
+      taskEndDates,
+      workLogEndAts,
+      Math.max(count, 7),
+    );
+  }
+
   const start = parseDate(projectStartDate);
   const latestTaskEnd = taskEndDates
     .filter((d): d is string => d !== null)
@@ -65,10 +139,10 @@ export function generateTimelineColumns(
       const day = addDays(start, i);
       const label = `${day.getMonth() + 1}/${day.getDate()}`;
       columns.push({
-        key: formatDate(day),
+        key: formatDateStr(day),
         label,
-        startDate: formatDate(day),
-        endDate: formatDate(day),
+        startDate: formatDateStr(day),
+        endDate: formatDateStr(day),
       });
     }
     return columns;
@@ -94,8 +168,8 @@ export function generateTimelineColumns(
       columns.push({
         key: `week-${i + 1}`,
         label: `Week ${i + 1}`,
-        startDate: formatDate(ws),
-        endDate: formatDate(we),
+        startDate: formatDateStr(ws),
+        endDate: formatDateStr(we),
       });
     }
     return columns;
@@ -123,8 +197,8 @@ export function generateTimelineColumns(
     columns.push({
       key: `${ms.getFullYear()}-${String(ms.getMonth() + 1).padStart(2, "0")}`,
       label: `${ms.getFullYear()}-${String(ms.getMonth() + 1).padStart(2, "0")}`,
-      startDate: formatDate(ms),
-      endDate: formatDate(me),
+      startDate: formatDateStr(ms),
+      endDate: formatDateStr(me),
     });
   }
 
@@ -162,6 +236,52 @@ export function getTaskColumnSpan(
   }
 
   return { startIndex, span: endIndex - startIndex + 1 };
+}
+
+/** ended_at은 미포함(half-open). 09:00–11:00 → 9시·10시 칸 */
+export function getWorkLogColumnSpan(
+  startedAt: string,
+  endedAt: string,
+  columns: TimelineColumn[],
+): { startIndex: number; span: number } | null {
+  if (columns.length === 0 || columns[0].hour === undefined) {
+    return null;
+  }
+
+  const start = parseDateTime(startedAt);
+  const end = parseDateTime(endedAt);
+
+  let startIndex = -1;
+  let endIndex = -1;
+
+  columns.forEach((col, index) => {
+    const day = parseDate(col.startDate);
+    const colStart = new Date(
+      day.getFullYear(),
+      day.getMonth(),
+      day.getDate(),
+      col.hour ?? 0,
+      0,
+      0,
+    );
+    const colEnd = new Date(colStart.getTime() + 60 * 60 * 1000);
+    const overlaps = start < colEnd && end > colStart;
+    if (overlaps) {
+      if (startIndex === -1) startIndex = index;
+      endIndex = index;
+    }
+  });
+
+  if (startIndex === -1) return null;
+  return { startIndex, span: endIndex - startIndex + 1 };
+}
+
+export function totalWorkLogHours(workLogs: WorkLog[]): number {
+  return workLogs.reduce((sum, log) => {
+    const start = parseDateTime(log.startedAt).getTime();
+    const end = parseDateTime(log.endedAt).getTime();
+    return sum + (end - start) / (1000 * 60 * 60);
+  }, 0);
 }
 
 export function datesOverlap(

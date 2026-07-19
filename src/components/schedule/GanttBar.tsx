@@ -6,6 +6,7 @@ type GanttBarProps = {
   startIndex: number;
   span: number;
   columnWidth: number;
+  title?: string;
 };
 
 export default function GanttBar({
@@ -13,15 +14,16 @@ export default function GanttBar({
   startIndex,
   span,
   columnWidth,
+  title,
 }: GanttBarProps) {
-  const left = startIndex * columnWidth + 4;
-  const width = span * columnWidth - 8;
+  const left = startIndex * columnWidth + 2;
+  const width = Math.max(span * columnWidth - 4, 4);
 
   return (
     <div
       className={`absolute top-1/2 h-5 -translate-y-1/2 rounded border ${STATUS_COLORS[status]}`}
       style={{ left, width }}
-      title={status}
+      title={title ?? status}
     />
   );
 }

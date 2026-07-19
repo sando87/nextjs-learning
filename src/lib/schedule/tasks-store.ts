@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfilesByIds } from "@/lib/schedule/profiles-store";
-import type { Tag, Task, TaskStatus } from "./types";
+import { getWorkLogsByTaskIds } from "@/lib/schedule/work-logs-store";
+import type { Tag, Task, TaskStatus, WorkLog } from "./types";
 
 type TaskRow = {
   id: string;
@@ -40,6 +41,7 @@ function toTask(
   assignee: Task["assignee"],
   tags: Tag[] = [],
   linkedTaskIds: string[] = [],
+  workLogs: WorkLog[] = [],
 ): Task {
   return {
     id: row.id,
@@ -54,6 +56,7 @@ function toTask(
     sortOrder: row.sort_order,
     tags,
     linkedTaskIds,
+    workLogs,
   };
 }
 
@@ -138,12 +141,15 @@ export async function getTasksByProject(projectId: string): Promise<Task[]> {
     linksByTask.set(row.source_task_id, list);
   }
 
+  const workLogsByTask = await getWorkLogsByTaskIds(taskIds);
+
   return taskRows.map((row) =>
     toTask(
       row,
       row.assignee_id ? profileMap.get(row.assignee_id) ?? null : null,
       tagsByTask.get(row.id) ?? [],
       linksByTask.get(row.id) ?? [],
+      workLogsByTask.get(row.id) ?? [],
     ),
   );
 }

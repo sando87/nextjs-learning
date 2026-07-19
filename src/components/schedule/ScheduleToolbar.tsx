@@ -24,6 +24,7 @@ type ScheduleToolbarProps = {
 };
 
 const VIEW_OPTIONS: { value: ViewMode; label: string }[] = [
+  { value: "hour", label: "시" },
   { value: "day", label: "일" },
   { value: "week", label: "주" },
   { value: "month", label: "월" },

@@ -2,6 +2,7 @@
 
 import { quickUpdateTaskAction } from "@/app/schedule/actions";
 import type { ColumnKey } from "@/components/schedule/schedule-board-state";
+import { totalWorkLogHours } from "@/lib/schedule/timeline-utils";
 import {
   STATUS_LABELS,
   TASK_STATUSES,
@@ -127,6 +128,12 @@ export default function TaskMetaCells({
       {visibleColumns.links ? (
         <td className={`${cellClass} min-w-[120px] text-zinc-500`}>
           {linkedTitles.length > 0 ? linkedTitles.join(", ") : "-"}
+        </td>
+      ) : null}
+
+      {visibleColumns.workHours ? (
+        <td className={`${cellClass} min-w-[64px] text-center`}>
+          {totalWorkLogHours(task.workLogs)}h
         </td>
       ) : null}
     </>

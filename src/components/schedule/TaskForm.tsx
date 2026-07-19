@@ -8,6 +8,7 @@ import {
   setTaskTagsAction,
   updateTaskAction,
 } from "@/app/schedule/actions";
+import WorkLogSection from "@/components/schedule/WorkLogSection";
 import {
   STATUS_LABELS,
   TASK_STATUSES,
@@ -239,6 +240,14 @@ export default function TaskForm({
                   ))}
               </div>
             </fieldset>
+          ) : null}
+
+          {isEdit && task ? (
+            <WorkLogSection
+              projectId={projectId}
+              taskId={task.id}
+              workLogs={task.workLogs}
+            />
           ) : null}
 
           <div className="mt-2 flex flex-wrap gap-2">

@@ -33,6 +33,10 @@ type ScheduleBoardProps = {
 };
 
 const COLUMN_WIDTH = 72;
+const HOUR_COLUMN_WIDTH = 36;
+
+/** undefined=닫힘, null=신규, string=수정 대상 id */
+type EditingTarget = string | null | undefined;
 
 function applyFilters(tasks: Task[], filters: BoardFilters) {
   return tasks.filter((task) => {
@@ -78,15 +82,21 @@ export default function ScheduleBoard({
 
   const [viewMode, setViewMode] = useState<ViewMode>(saved.viewMode ?? "week");
   const [sortKey, setSortKey] = useState<SortKey>(saved.sortKey ?? "priority");
-  const [visibleColumns, setVisibleColumns] = useState(
-    saved.visibleColumns ?? DEFAULT_VISIBLE_COLUMNS,
-  );
+  const [visibleColumns, setVisibleColumns] = useState({
+    ...DEFAULT_VISIBLE_COLUMNS,
+    ...(saved.visibleColumns ?? {}),
+  });
   const [filters, setFilters] = useState<BoardFilters>(
     saved.filters ?? DEFAULT_FILTERS,
   );
-  const [editingTask, setEditingTask] = useState<Task | null | undefined>(
-    undefined,
-  );
+  const [editingTarget, setEditingTarget] = useState<EditingTarget>(undefined);
+
+  const editingTask: Task | null | undefined =
+    editingTarget === undefined
+      ? undefined
+      : editingTarget === null
+        ? null
+        : tasks.find((t) => t.id === editingTarget);
 
   const persist = (
     next: Partial<{
@@ -110,9 +120,13 @@ export default function ScheduleBoard({
         viewMode,
         project.startDate,
         tasks.map((t) => t.endDate),
+        14,
+        tasks.flatMap((t) => t.workLogs.map((log) => log.endedAt)),
       ),
     [viewMode, project.startDate, tasks],
   );
+
+  const columnWidth = viewMode === "hour" ? HOUR_COLUMN_WIDTH : COLUMN_WIDTH;
 
   const visibleTasks = useMemo(
     () => sortTasks(applyFilters(tasks, filters), sortKey),
@@ -152,7 +166,7 @@ export default function ScheduleBoard({
           setFilters(next);
           persist({ filters: next });
         }}
-        onAddTask={() => setEditingTask(null)}
+        onAddTask={() => setEditingTarget(null)}
       />
 
       <div className="overflow-x-auto rounded border border-zinc-300 dark:border-zinc-700">
@@ -169,7 +183,7 @@ export default function ScheduleBoard({
                   {col.label}
                 </th>
               ))}
-              <TimelineHeader columns={columns} columnWidth={COLUMN_WIDTH} />
+              <TimelineHeader columns={columns} columnWidth={columnWidth} />
             </tr>
           </thead>
           <tbody>
@@ -193,12 +207,13 @@ export default function ScheduleBoard({
                     members={members}
                     visibleColumns={visibleColumns}
                     allTasks={tasks}
-                    onEdit={setEditingTask}
+                    onEdit={(t) => setEditingTarget(t.id)}
                   />
                   <TimelineCells
                     task={task}
                     columns={columns}
-                    columnWidth={COLUMN_WIDTH}
+                    columnWidth={columnWidth}
+                    viewMode={viewMode}
                   />
                 </tr>
               ))
@@ -210,7 +225,7 @@ export default function ScheduleBoard({
               >
                 <button
                   type="button"
-                  onClick={() => setEditingTask(null)}
+                  onClick={() => setEditingTarget(null)}
                   className="hover:underline"
                 >
                   [Add New Work]
@@ -228,7 +243,7 @@ export default function ScheduleBoard({
           tags={tags}
           allTasks={tasks}
           task={editingTask}
-          onClose={() => setEditingTask(undefined)}
+          onClose={() => setEditingTarget(undefined)}
         />
       ) : null}
     </div>

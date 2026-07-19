@@ -1,7 +1,7 @@
 export const TASK_STATUSES = ["planned", "doing", "done", "hold"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
-export const VIEW_MODES = ["day", "week", "month"] as const;
+export const VIEW_MODES = ["hour", "day", "week", "month"] as const;
 export type ViewMode = (typeof VIEW_MODES)[number];
 
 export type ProjectRole = "owner" | "member";
@@ -36,6 +36,15 @@ export type Tag = {
   color: string;
 };
 
+export type WorkLog = {
+  id: string;
+  taskId: string;
+  /** YYYY-MM-DDTHH:mm:ss (시 단위, timezone 없음) */
+  startedAt: string;
+  endedAt: string;
+  note: string | null;
+};
+
 export type Task = {
   id: string;
   projectId: string;
@@ -49,6 +58,7 @@ export type Task = {
   sortOrder: number;
   tags: Tag[];
   linkedTaskIds: string[];
+  workLogs: WorkLog[];
 };
 
 export type TimelineColumn = {
@@ -56,6 +66,8 @@ export type TimelineColumn = {
   label: string;
   startDate: string;
   endDate: string;
+  /** hour 뷰 전용: 0–23 */
+  hour?: number;
 };
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {

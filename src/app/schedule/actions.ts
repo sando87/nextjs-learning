@@ -21,6 +21,12 @@ import {
   deleteTask,
   updateTask,
 } from "@/lib/schedule/tasks-store";
+import { toHourTimestamp } from "@/lib/schedule/work-log-utils";
+import {
+  createWorkLog,
+  deleteWorkLog,
+  updateWorkLog,
+} from "@/lib/schedule/work-logs-store";
 import {
   TASK_STATUSES,
   type TaskStatus,
@@ -399,5 +405,99 @@ export async function quickUpdateTaskAction(formData: FormData) {
   }
 
   await updateTask(taskId, updates);
+  revalidateSchedule(projectId);
+}
+
+function parseHourField(value: FormDataEntryValue | null): number | null {
+  if (typeof value !== "string" || value === "") return null;
+  const hour = Number(value);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null;
+  return hour;
+}
+
+export async function createWorkLogAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const taskId = formData.get("taskId");
+  const startDate = formData.get("startDate");
+  const endDate = formData.get("endDate");
+  const startHour = parseHourField(formData.get("startHour"));
+  const endHour = parseHourField(formData.get("endHour"));
+  const note = formData.get("note");
+
+  if (
+    typeof projectId !== "string" ||
+    typeof taskId !== "string" ||
+    typeof startDate !== "string" ||
+    typeof endDate !== "string" ||
+    startHour === null ||
+    endHour === null
+  ) {
+    throw new Error("작업시간 입력값이 올바르지 않습니다");
+  }
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 작업시간을 기록할 수 있습니다");
+
+  await createWorkLog({
+    taskId,
+    startedAt: toHourTimestamp(startDate, startHour),
+    endedAt: toHourTimestamp(endDate, endHour),
+    note: typeof note === "string" ? note : null,
+  });
+
+  revalidateSchedule(projectId);
+}
+
+export async function updateWorkLogAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const workLogId = formData.get("workLogId");
+  const startDate = formData.get("startDate");
+  const endDate = formData.get("endDate");
+  const startHour = parseHourField(formData.get("startHour"));
+  const endHour = parseHourField(formData.get("endHour"));
+  const note = formData.get("note");
+
+  if (
+    typeof projectId !== "string" ||
+    typeof workLogId !== "string" ||
+    typeof startDate !== "string" ||
+    typeof endDate !== "string" ||
+    startHour === null ||
+    endHour === null
+  ) {
+    throw new Error("작업시간 입력값이 올바르지 않습니다");
+  }
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 작업시간을 수정할 수 있습니다");
+
+  await updateWorkLog(workLogId, {
+    startedAt: toHourTimestamp(startDate, startHour),
+    endedAt: toHourTimestamp(endDate, endHour),
+    note: typeof note === "string" ? note : null,
+  });
+
+  revalidateSchedule(projectId);
+}
+
+export async function deleteWorkLogAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const workLogId = formData.get("workLogId");
+
+  if (typeof projectId !== "string" || typeof workLogId !== "string") return;
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 작업시간을 삭제할 수 있습니다");
+
+  await deleteWorkLog(workLogId);
   revalidateSchedule(projectId);
 }

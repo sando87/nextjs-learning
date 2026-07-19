@@ -3,7 +3,8 @@ export type ColumnKey =
   | "state"
   | "priority"
   | "tags"
-  | "links";
+  | "links"
+  | "workHours";
 
 export const COLUMN_LABELS: Record<ColumnKey, string> = {
   worker: "Worker",
@@ -11,6 +12,7 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
   priority: "Priority",
   tags: "Tags",
   links: "Links",
+  workHours: "WorkHours",
 };
 
 export const DEFAULT_VISIBLE_COLUMNS: Record<ColumnKey, boolean> = {
@@ -19,6 +21,7 @@ export const DEFAULT_VISIBLE_COLUMNS: Record<ColumnKey, boolean> = {
   priority: false,
   tags: true,
   links: false,
+  workHours: true,
 };
 
 export type SortKey = "priority" | "startDate" | "status" | "title";
@@ -36,7 +39,7 @@ export const DEFAULT_FILTERS: BoardFilters = {
 };
 
 export type BoardPreferences = {
-  viewMode: "day" | "week" | "month";
+  viewMode: "hour" | "day" | "week" | "month";
   sortKey: SortKey;
   visibleColumns: Record<ColumnKey, boolean>;
   filters: BoardFilters;
