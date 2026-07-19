@@ -12,6 +12,14 @@ type TimelineCellsProps = {
   viewMode: ViewMode;
 };
 
+function formatWorkLogTitle(startedAt: string, endedAt: string): string {
+  const sameDay = startedAt.slice(0, 10) === endedAt.slice(0, 10);
+  if (sameDay) {
+    return `${startedAt.slice(5, 10)} ${startedAt.slice(11, 16)}–${endedAt.slice(11, 16)}`;
+  }
+  return `${startedAt.slice(0, 16)}–${endedAt.slice(0, 16)}`;
+}
+
 export default function TimelineCells({
   task,
   columns,
@@ -20,6 +28,12 @@ export default function TimelineCells({
 }: TimelineCellsProps) {
   const totalWidth = columns.length * columnWidth;
   const isHourView = viewMode === "hour";
+
+  // 일/주/월에서는 계획 일정도 함께 표시 (작업시간 바와 구분)
+  const planSpan =
+    !isHourView
+      ? getTaskColumnSpan(task.startDate, task.endDate, columns)
+      : null;
 
   return (
     <td
@@ -40,41 +54,36 @@ export default function TimelineCells({
           />
         ))}
 
-        {isHourView
-          ? task.workLogs.map((log) => {
-              const span = getWorkLogColumnSpan(
-                log.startedAt,
-                log.endedAt,
-                columns,
-              );
-              if (!span) return null;
-              return (
-                <GanttBar
-                  key={log.id}
-                  status={task.status}
-                  startIndex={span.startIndex}
-                  span={span.span}
-                  columnWidth={columnWidth}
-                  title={`${log.startedAt.slice(0, 16)}–${log.endedAt.slice(11, 16)}`}
-                />
-              );
-            })
-          : (() => {
-              const span = getTaskColumnSpan(
-                task.startDate,
-                task.endDate,
-                columns,
-              );
-              if (!span) return null;
-              return (
-                <GanttBar
-                  status={task.status}
-                  startIndex={span.startIndex}
-                  span={span.span}
-                  columnWidth={columnWidth}
-                />
-              );
-            })()}
+        {planSpan ? (
+          <GanttBar
+            status={task.status}
+            startIndex={planSpan.startIndex}
+            span={planSpan.span}
+            columnWidth={columnWidth}
+            title={`계획 ${task.startDate}–${task.endDate}`}
+            variant="plan"
+          />
+        ) : null}
+
+        {task.workLogs.map((log) => {
+          const span = getWorkLogColumnSpan(
+            log.startedAt,
+            log.endedAt,
+            columns,
+          );
+          if (!span) return null;
+          return (
+            <GanttBar
+              key={log.id}
+              status={task.status}
+              startIndex={span.startIndex}
+              span={span.span}
+              columnWidth={columnWidth}
+              title={formatWorkLogTitle(log.startedAt, log.endedAt)}
+              variant="work"
+            />
+          );
+        })}
       </div>
     </td>
   );

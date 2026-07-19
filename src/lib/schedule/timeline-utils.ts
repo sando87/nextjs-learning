@@ -119,18 +119,16 @@ export function generateTimelineColumns(
   }
 
   const start = parseDate(projectStartDate);
-  const latestTaskEnd = taskEndDates
-    .filter((d): d is string => d !== null)
-    .map(parseDate)
-    .sort((a, b) => b.getTime() - a.getTime())[0];
+  // 계획 종료일 + 작업로그 종료일 모두 반영해 타임라인 길이를 잡음
+  const latestEnd = latestBound(taskEndDates, workLogEndAts);
 
   if (viewMode === "day") {
     const columns: TimelineColumn[] = [];
     let minCount = count;
-    if (latestTaskEnd) {
+    if (latestEnd) {
       const days =
         Math.ceil(
-          (latestTaskEnd.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+          (latestEnd.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
         ) + 1;
       minCount = Math.max(count, days);
     }
@@ -153,10 +151,10 @@ export function generateTimelineColumns(
     const weekStart = startOfWeek(start);
     let minCount = count;
 
-    if (latestTaskEnd) {
+    if (latestEnd) {
       const weeks =
         Math.ceil(
-          (latestTaskEnd.getTime() - weekStart.getTime()) /
+          (latestEnd.getTime() - weekStart.getTime()) /
             (1000 * 60 * 60 * 24 * 7),
         ) + 1;
       minCount = Math.max(count, weeks);
@@ -179,10 +177,10 @@ export function generateTimelineColumns(
   const monthStart = startOfMonth(start);
   let minCount = count;
 
-  if (latestTaskEnd) {
+  if (latestEnd) {
     const months =
-      (latestTaskEnd.getFullYear() - monthStart.getFullYear()) * 12 +
-      (latestTaskEnd.getMonth() - monthStart.getMonth()) +
+      (latestEnd.getFullYear() - monthStart.getFullYear()) * 12 +
+      (latestEnd.getMonth() - monthStart.getMonth()) +
       1;
     minCount = Math.max(count, months);
   }
@@ -238,42 +236,69 @@ export function getTaskColumnSpan(
   return { startIndex, span: endIndex - startIndex + 1 };
 }
 
-/** ended_at은 미포함(half-open). 09:00–11:00 → 9시·10시 칸 */
+/** 작업로그가 걸친 실제 날짜 구간 (ended_at 정시는 전날까지) */
+export function workLogDateRange(
+  startedAt: string,
+  endedAt: string,
+): { startDate: string; endDate: string } {
+  const start = parseDateTime(startedAt);
+  const end = parseDateTime(endedAt);
+  const startDate = formatDateStr(start);
+
+  let endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  if (
+    end.getHours() === 0 &&
+    end.getMinutes() === 0 &&
+    end.getSeconds() === 0
+  ) {
+    endDay = addDays(endDay, -1);
+  }
+  const endDate = formatDateStr(endDay < start ? start : endDay);
+  return { startDate, endDate };
+}
+
+/**
+ * 시 뷰: ended_at 미포함(half-open). 09:00–11:00 → 9·10시 칸
+ * 일/주/월 뷰: 작업이 걸친 날짜가 포함된 컬럼
+ */
 export function getWorkLogColumnSpan(
   startedAt: string,
   endedAt: string,
   columns: TimelineColumn[],
 ): { startIndex: number; span: number } | null {
-  if (columns.length === 0 || columns[0].hour === undefined) {
-    return null;
+  if (columns.length === 0) return null;
+
+  if (columns[0].hour !== undefined) {
+    const start = parseDateTime(startedAt);
+    const end = parseDateTime(endedAt);
+
+    let startIndex = -1;
+    let endIndex = -1;
+
+    columns.forEach((col, index) => {
+      const day = parseDate(col.startDate);
+      const colStart = new Date(
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate(),
+        col.hour ?? 0,
+        0,
+        0,
+      );
+      const colEnd = new Date(colStart.getTime() + 60 * 60 * 1000);
+      const overlaps = start < colEnd && end > colStart;
+      if (overlaps) {
+        if (startIndex === -1) startIndex = index;
+        endIndex = index;
+      }
+    });
+
+    if (startIndex === -1) return null;
+    return { startIndex, span: endIndex - startIndex + 1 };
   }
 
-  const start = parseDateTime(startedAt);
-  const end = parseDateTime(endedAt);
-
-  let startIndex = -1;
-  let endIndex = -1;
-
-  columns.forEach((col, index) => {
-    const day = parseDate(col.startDate);
-    const colStart = new Date(
-      day.getFullYear(),
-      day.getMonth(),
-      day.getDate(),
-      col.hour ?? 0,
-      0,
-      0,
-    );
-    const colEnd = new Date(colStart.getTime() + 60 * 60 * 1000);
-    const overlaps = start < colEnd && end > colStart;
-    if (overlaps) {
-      if (startIndex === -1) startIndex = index;
-      endIndex = index;
-    }
-  });
-
-  if (startIndex === -1) return null;
-  return { startIndex, span: endIndex - startIndex + 1 };
+  const { startDate, endDate } = workLogDateRange(startedAt, endedAt);
+  return getTaskColumnSpan(startDate, endDate, columns);
 }
 
 export function totalWorkLogHours(workLogs: WorkLog[]): number {
