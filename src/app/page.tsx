@@ -1,5 +1,6 @@
 // next/image: 이미지 최적화(지연 로딩, WebP 변환 등)를 Next.js가 대신 처리해 줌
 import Image from "next/image";
+import AppVersionBadge from "@/components/AppVersionBadge";
 
 // app/page.tsx → "/" 경로(홈)에 매핑되는 페이지 컴포넌트
 // 'use client'가 없으므로 Server Component: 브라우저 JS 번들에 포함되지 않음
@@ -67,6 +68,7 @@ export default function Home() {
             Documentation
           </a>
         </div>
+        <AppVersionBadge />
       </main>
     </div>
   );
