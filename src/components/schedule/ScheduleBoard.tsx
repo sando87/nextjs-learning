@@ -1,10 +1,20 @@
 "use client";
 
+import { reorderTaskAction } from "@/app/schedule/actions";
 import ScheduleToolbar from "@/components/schedule/ScheduleToolbar";
 import TaskForm from "@/components/schedule/TaskForm";
 import TaskMetaCells from "@/components/schedule/TaskMetaCells";
 import TimelineCells from "@/components/schedule/TimelineCells";
 import TimelineHeader from "@/components/schedule/TimelineHeader";
+import {
+  applyFilters,
+  neighborsAtInsert,
+  resolveSortKey,
+  showIndicatorAbove,
+  showIndicatorBelow,
+  sortTasks,
+  toInsertIndex,
+} from "@/components/schedule/schedule-board-tasks";
 import {
   COLUMN_LABELS,
   DEFAULT_FILTERS,
@@ -23,7 +33,8 @@ import type {
   Task,
   ViewMode,
 } from "@/lib/schedule/types";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState, useTransition } from "react";
 
 type ScheduleBoardProps = {
   project: Project;
@@ -38,50 +49,20 @@ const HOUR_COLUMN_WIDTH = 36;
 /** undefined=닫힘, null=신규, string=수정 대상 id */
 type EditingTarget = string | null | undefined;
 
-function applyFilters(tasks: Task[], filters: BoardFilters) {
-  return tasks.filter((task) => {
-    if (
-      filters.assigneeIds.length > 0 &&
-      (!task.assigneeId || !filters.assigneeIds.includes(task.assigneeId))
-    ) {
-      return false;
-    }
-    if (filters.statuses.length > 0 && !filters.statuses.includes(task.status)) {
-      return false;
-    }
-    if (
-      filters.tagIds.length > 0 &&
-      !task.tags.some((t) => filters.tagIds.includes(t.id))
-    ) {
-      return false;
-    }
-    return true;
-  });
-}
-
-function sortTasks(tasks: Task[], sortKey: SortKey) {
-  const copy = [...tasks];
-  copy.sort((a, b) => {
-    if (sortKey === "priority") return a.priority - b.priority;
-    if (sortKey === "title") return a.title.localeCompare(b.title);
-    if (sortKey === "status") return a.status.localeCompare(b.status);
-    const aDate = a.startDate ?? "9999-99-99";
-    const bDate = b.startDate ?? "9999-99-99";
-    return aDate.localeCompare(bDate);
-  });
-  return copy;
-}
-
 export default function ScheduleBoard({
   project,
   tasks,
   members,
   tags,
 }: ScheduleBoardProps) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
   const saved = loadBoardPreferences(project.id);
 
   const [viewMode, setViewMode] = useState<ViewMode>(saved.viewMode ?? "week");
-  const [sortKey, setSortKey] = useState<SortKey>(saved.sortKey ?? "priority");
+  const [sortKey, setSortKey] = useState<SortKey>(
+    resolveSortKey(saved.sortKey),
+  );
   const [visibleColumns, setVisibleColumns] = useState({
     ...DEFAULT_VISIBLE_COLUMNS,
     ...(saved.visibleColumns ?? {}),
@@ -90,6 +71,8 @@ export default function ScheduleBoard({
     saved.filters ?? DEFAULT_FILTERS,
   );
   const [editingTarget, setEditingTarget] = useState<EditingTarget>(undefined);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
 
   const editingTask: Task | null | undefined =
     editingTarget === undefined
@@ -127,6 +110,7 @@ export default function ScheduleBoard({
   );
 
   const columnWidth = viewMode === "hour" ? HOUR_COLUMN_WIDTH : COLUMN_WIDTH;
+  const canReorder = sortKey === "sortOrder";
 
   const visibleTasks = useMemo(
     () => sortTasks(applyFilters(tasks, filters), sortKey),
@@ -139,6 +123,31 @@ export default function ScheduleBoard({
       .filter((k) => visibleColumns[k])
       .map((k) => ({ key: k, label: COLUMN_LABELS[k] })),
   ];
+
+  const handleDropAt = (insertIndex: number) => {
+    if (!draggingId || !canReorder) return;
+    const movedId = draggingId;
+    const from = visibleTasks.findIndex((t) => t.id === movedId);
+    setDraggingId(null);
+    setDropInsertIndex(null);
+    if (from < 0 || insertIndex === from) return;
+
+    const { beforeId, afterId } = neighborsAtInsert(
+      visibleTasks,
+      movedId,
+      insertIndex,
+    );
+
+    startTransition(async () => {
+      await reorderTaskAction({
+        projectId: project.id,
+        taskId: movedId,
+        beforeId,
+        afterId,
+      });
+      router.refresh();
+    });
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -199,8 +208,49 @@ export default function ScheduleBoard({
                 </td>
               </tr>
             ) : (
-              visibleTasks.map((task) => (
-                <tr key={task.id}>
+              visibleTasks.map((task, index) => (
+                <tr
+                  key={task.id}
+                  onDragOver={
+                    canReorder && draggingId
+                      ? (e) => {
+                          e.preventDefault();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const placeBefore =
+                            e.clientY < rect.top + rect.height / 2;
+                          setDropInsertIndex(
+                            toInsertIndex(
+                              visibleTasks,
+                              draggingId,
+                              index,
+                              placeBefore,
+                            ),
+                          );
+                        }
+                      : undefined
+                  }
+                  onDrop={
+                    canReorder && draggingId
+                      ? (e) => {
+                          e.preventDefault();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const placeBefore =
+                            e.clientY < rect.top + rect.height / 2;
+                          handleDropAt(
+                            toInsertIndex(
+                              visibleTasks,
+                              draggingId,
+                              index,
+                              placeBefore,
+                            ),
+                          );
+                        }
+                      : undefined
+                  }
+                  className={
+                    draggingId === task.id ? "opacity-50" : undefined
+                  }
+                >
                   <TaskMetaCells
                     task={task}
                     projectId={project.id}
@@ -208,6 +258,24 @@ export default function ScheduleBoard({
                     visibleColumns={visibleColumns}
                     allTasks={tasks}
                     onEdit={(t) => setEditingTarget(t.id)}
+                    reorderEnabled={canReorder}
+                    showDropIndicatorAbove={showIndicatorAbove(
+                      visibleTasks,
+                      draggingId,
+                      dropInsertIndex,
+                      index,
+                    )}
+                    showDropIndicatorBelow={showIndicatorBelow(
+                      visibleTasks,
+                      draggingId,
+                      dropInsertIndex,
+                      index,
+                    )}
+                    onDragHandleStart={() => setDraggingId(task.id)}
+                    onDragHandleEnd={() => {
+                      setDraggingId(null);
+                      setDropInsertIndex(null);
+                    }}
                   />
                   <TimelineCells
                     projectId={project.id}

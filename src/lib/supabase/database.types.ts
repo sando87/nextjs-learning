@@ -336,6 +336,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      batch_update_task_sort_orders: {
+        Args: { updates: Json }
+        Returns: undefined
+      }
       is_project_member: { Args: { p_project_id: string }; Returns: boolean }
       is_project_owner: { Args: { p_project_id: string }; Returns: boolean }
     }

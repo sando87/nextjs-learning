@@ -19,6 +19,7 @@ import { createTag, deleteTag, setTaskTags } from "@/lib/schedule/tags-store";
 import {
   createTask,
   deleteTask,
+  reorderTask,
   updateTask,
 } from "@/lib/schedule/tasks-store";
 import { toHourTimestamp } from "@/lib/schedule/work-log-utils";
@@ -265,6 +266,24 @@ export async function deleteTaskAction(formData: FormData) {
   if (!isMember) throw new Error("프로젝트 멤버만 업무를 삭제할 수 있습니다");
 
   await deleteTask(taskId);
+  revalidateSchedule(projectId);
+}
+
+export async function reorderTaskAction(input: {
+  projectId: string;
+  taskId: string;
+  beforeId: string | null;
+  afterId: string | null;
+}) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const { projectId, taskId, beforeId, afterId } = input;
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 업무 순서를 변경할 수 있습니다");
+
+  await reorderTask(projectId, taskId, beforeId, afterId);
   revalidateSchedule(projectId);
 }
 

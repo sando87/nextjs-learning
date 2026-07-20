@@ -17,6 +17,11 @@ type TaskMetaCellsProps = {
   visibleColumns: Record<ColumnKey, boolean>;
   allTasks: Task[];
   onEdit: (task: Task) => void;
+  reorderEnabled?: boolean;
+  showDropIndicatorAbove?: boolean;
+  showDropIndicatorBelow?: boolean;
+  onDragHandleStart?: () => void;
+  onDragHandleEnd?: () => void;
 };
 
 const cellClass =
@@ -29,31 +34,65 @@ export default function TaskMetaCells({
   visibleColumns,
   allTasks,
   onEdit,
+  reorderEnabled = false,
+  showDropIndicatorAbove = false,
+  showDropIndicatorBelow = false,
+  onDragHandleStart,
+  onDragHandleEnd,
 }: TaskMetaCellsProps) {
   const linkedTitles = task.linkedTaskIds
     .map((id) => allTasks.find((t) => t.id === id)?.title)
     .filter(Boolean);
 
+  const dropLine =
+    showDropIndicatorAbove && showDropIndicatorBelow
+      ? "shadow-[inset_0_2px_0_0_#0ea5e9,inset_0_-2px_0_0_#0ea5e9]"
+      : showDropIndicatorAbove
+        ? "shadow-[inset_0_2px_0_0_#0ea5e9]"
+        : showDropIndicatorBelow
+          ? "shadow-[inset_0_-2px_0_0_#0ea5e9]"
+          : "";
+
   return (
     <>
-      <td className={`${cellClass} sticky left-0 z-10 min-w-[140px] bg-white dark:bg-black`}>
-        <button
-          type="button"
-          onClick={() => onEdit(task)}
-          onDoubleClick={() => {
-            const next = prompt("업무 이름", task.title);
-            if (next === null) return;
-            const fd = new FormData();
-            fd.set("projectId", projectId);
-            fd.set("taskId", task.id);
-            fd.set("field", "title");
-            fd.set("value", next);
-            void quickUpdateTaskAction(fd);
-          }}
-          className="w-full text-left font-medium hover:underline"
-        >
-          {task.title}
-        </button>
+      <td
+        className={`${cellClass} sticky left-0 z-10 min-w-[140px] bg-white dark:bg-black ${dropLine}`}
+      >
+        <div className="flex items-center gap-1">
+          {reorderEnabled ? (
+            <span
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", task.id);
+                onDragHandleStart?.();
+              }}
+              onDragEnd={() => onDragHandleEnd?.()}
+              className="cursor-grab select-none px-0.5 text-zinc-400 hover:text-zinc-600 active:cursor-grabbing dark:hover:text-zinc-300"
+              title="드래그하여 순서 변경"
+              aria-label="드래그하여 순서 변경"
+            >
+              ⋮⋮
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => onEdit(task)}
+            onDoubleClick={() => {
+              const next = prompt("업무 이름", task.title);
+              if (next === null) return;
+              const fd = new FormData();
+              fd.set("projectId", projectId);
+              fd.set("taskId", task.id);
+              fd.set("field", "title");
+              fd.set("value", next);
+              void quickUpdateTaskAction(fd);
+            }}
+            className="min-w-0 flex-1 text-left font-medium hover:underline"
+          >
+            {task.title}
+          </button>
+        </div>
       </td>
 
       {visibleColumns.worker ? (

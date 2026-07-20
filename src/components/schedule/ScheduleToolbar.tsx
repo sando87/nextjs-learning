@@ -31,6 +31,7 @@ const VIEW_OPTIONS: { value: ViewMode; label: string }[] = [
 ];
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "sortOrder", label: "사용자 정렬" },
   { value: "priority", label: "우선순위" },
   { value: "startDate", label: "시작일" },
   { value: "status", label: "상태" },

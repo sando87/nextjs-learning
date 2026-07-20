@@ -24,7 +24,12 @@ export const DEFAULT_VISIBLE_COLUMNS: Record<ColumnKey, boolean> = {
   workHours: true,
 };
 
-export type SortKey = "priority" | "startDate" | "status" | "title";
+export type SortKey =
+  | "sortOrder"
+  | "priority"
+  | "startDate"
+  | "status"
+  | "title";
 
 export type BoardFilters = {
   assigneeIds: string[];

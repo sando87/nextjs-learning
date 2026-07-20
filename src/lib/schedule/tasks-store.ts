@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfilesByIds } from "@/lib/schedule/profiles-store";
 import { getWorkLogsByTaskIds } from "@/lib/schedule/work-logs-store";
+import { computeSortOrderUpdates } from "@/lib/schedule/task-sort-order";
 import type { Tag, Task, TaskStatus, WorkLog } from "./types";
 
 type TaskRow = {
@@ -180,7 +181,8 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
     .limit(1)
     .maybeSingle();
 
-  const sortOrder = (maxOrder?.sort_order ?? -1) + 1;
+  // gap 10: 중간값 삽입을 위해 신규는 항상 끝에 +10
+  const sortOrder = (maxOrder?.sort_order ?? 0) + 10;
 
   const { data, error } = await supabase
     .from("tasks")
@@ -282,6 +284,71 @@ export async function deleteTask(taskId: string): Promise<void> {
 
   if (error) {
     throw new Error(error.message);
+  }
+}
+
+/** 드래그 삽입 위치에 맞춰 sort_order를 갱신한다. */
+export async function reorderTask(
+  projectId: string,
+  movedId: string,
+  beforeId: string | null,
+  afterId: string | null,
+): Promise<void> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("id, sort_order")
+    .eq("project_id", projectId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const entries = (data ?? []).map((row) => ({
+    id: row.id as string,
+    sortOrder: row.sort_order as number,
+  }));
+
+  const updates = computeSortOrderUpdates(
+    movedId,
+    beforeId,
+    afterId,
+    entries,
+  );
+
+  if (updates.length === 0) return;
+
+  if (updates.length === 1) {
+    const [only] = updates;
+    const { error: updateError } = await supabase
+      .from("tasks")
+      .update({
+        sort_order: only.sortOrder,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", only.id)
+      .eq("project_id", projectId);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+    return;
+  }
+
+  // 다수 갱신은 RPC로 UPDATE 1회
+  const { error: rpcError } = await supabase.rpc(
+    "batch_update_task_sort_orders",
+    {
+      updates: updates.map((u) => ({
+        id: u.id,
+        sort_order: u.sortOrder,
+      })),
+    },
+  );
+
+  if (rpcError) {
+    throw new Error(rpcError.message);
   }
 }
 
