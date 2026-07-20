@@ -4,7 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "predev": "node scripts/bump-app-version.mjs",
     "build": "next build",
+    "prebuild": "node scripts/bump-app-version.mjs",
+    "version:bump": "node scripts/bump-app-version.mjs",
+    "prepare": "node scripts/install-git-hooks.mjs",
     "start": "next start",
     "lint": "eslint",
     "db:types": "supabase gen types typescript --linked --schema=public > src/lib/supabase/database.types.ts",

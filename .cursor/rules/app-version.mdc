@@ -1,0 +1,15 @@
+---
+description: 배포 확인용 앱 버전 자동 관리 규칙
+alwaysApply: true
+---
+
+# App Version (배포 확인)
+
+- `src/lib/app-version.ts`는 **직접 수정하지 않음**. `scripts/bump-app-version.mjs`가 자동 갱신함.
+- `src/` 코드가 바뀌면 아래 시점에 patch 버전이 자동으로 올라감:
+  - Cursor가 파일을 수정한 직후 (`.cursor/hooks.json`)
+  - `npm run dev` / `npm run build` 실행 전 (`predev`, `prebuild`)
+  - `git commit` 직전 (pre-commit hook)
+- Home 페이지 `AppVersionBadge`로 배포 버전 확인.
+- 기능 변경 후에는 Home에서 버전 번호가 올라갔는지 확인.
+- notes는 변경된 `src/` 파일명으로 자동 생성됨. 특정 문구가 필요하면 커밋 전에 `APP_VERSION_NOTES="설명"` 환경 변수로 지정 가능.

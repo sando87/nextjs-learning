@@ -1,9 +1,9 @@
 /**
- * 배포 확인용 앱 버전.
- * 기능 추가·수정 후 배포할 때마다 version을 올리고 notes를 갱신하세요.
+ * 배포 확인용 앱 버전. src/ 변경 시 scripts/bump-app-version.mjs 가 자동 갱신합니다.
  */
 export const APP_VERSION = {
-  version: "0.1.0",
+  version: "0.1.2",
   releasedAt: "2026-07-20",
-  notes: "Home 페이지에 배포 확인용 버전 표시 추가",
+  notes: "자동 버전업",
+  sourceHash: "2d9a11b2533f",
 } as const;
