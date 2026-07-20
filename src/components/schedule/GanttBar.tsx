@@ -9,6 +9,9 @@ type GanttBarProps = {
   title?: string;
   /** plan=계획 일정(연한 배경), work=실제 작업시간 */
   variant?: "plan" | "work";
+  /** 부모가 위치를 잡을 때 true */
+  embedded?: boolean;
+  className?: string;
 };
 
 export default function GanttBar({
@@ -18,6 +21,8 @@ export default function GanttBar({
   columnWidth,
   title,
   variant = "work",
+  embedded = false,
+  className = "",
 }: GanttBarProps) {
   const left = startIndex * columnWidth + 2;
   const width = Math.max(span * columnWidth - 4, 4);
@@ -25,12 +30,20 @@ export default function GanttBar({
 
   return (
     <div
-      className={`absolute left-0 rounded border ${
+      className={`rounded border ${
+        embedded
+          ? ""
+          : `absolute left-0 ${
+              isPlan
+                ? "top-1 h-2 pointer-events-none"
+                : "top-1/2 h-5 -translate-y-1/2"
+            }`
+      } ${
         isPlan
-          ? "top-1 h-2 border-dashed border-zinc-400 bg-zinc-200/70 dark:border-zinc-500 dark:bg-zinc-700/50"
-          : `top-1/2 h-5 -translate-y-1/2 ${STATUS_COLORS[status]}`
-      }`}
-      style={{ left, width }}
+          ? "border-dashed border-zinc-400 bg-zinc-200/70 dark:border-zinc-500 dark:bg-zinc-700/50"
+          : STATUS_COLORS[status]
+      } ${className}`}
+      style={embedded ? { width: "100%", height: "100%" } : { left, width }}
       title={title ?? status}
     />
   );

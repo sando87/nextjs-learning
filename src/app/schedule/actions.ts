@@ -467,7 +467,9 @@ export async function createWorkLogAction(
   }
 }
 
-export async function updateWorkLogAction(formData: FormData) {
+export async function updateWorkLogAction(
+  formData: FormData,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const user = await requireUser();
   if (!user) redirect("/login");
 
@@ -487,19 +489,29 @@ export async function updateWorkLogAction(formData: FormData) {
     startHour === null ||
     endHour === null
   ) {
-    throw new Error("작업시간 입력값이 올바르지 않습니다");
+    return { ok: false, error: "작업시간 입력값이 올바르지 않습니다" };
   }
 
   const isMember = await requireProjectMember(projectId, user.id);
-  if (!isMember) throw new Error("프로젝트 멤버만 작업시간을 수정할 수 있습니다");
+  if (!isMember) {
+    return { ok: false, error: "프로젝트 멤버만 작업시간을 수정할 수 있습니다" };
+  }
 
-  await updateWorkLog(workLogId, {
-    startedAt: toHourTimestamp(startDate, startHour),
-    endedAt: toHourTimestamp(endDate, endHour),
-    note: typeof note === "string" ? note : null,
-  });
-
-  revalidateSchedule(projectId);
+  try {
+    await updateWorkLog(workLogId, {
+      startedAt: toHourTimestamp(startDate, startHour),
+      endedAt: toHourTimestamp(endDate, endHour),
+      note: typeof note === "string" ? note : null,
+    });
+    revalidateSchedule(projectId);
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error ? error.message : "작업시간 수정에 실패했습니다",
+    };
+  }
 }
 
 export async function deleteWorkLogAction(

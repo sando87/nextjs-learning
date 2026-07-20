@@ -210,6 +210,7 @@ export default function ScheduleBoard({
                     onEdit={(t) => setEditingTarget(t.id)}
                   />
                   <TimelineCells
+                    projectId={project.id}
                     task={task}
                     columns={columns}
                     columnWidth={columnWidth}
