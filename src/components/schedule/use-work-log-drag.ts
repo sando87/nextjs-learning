@@ -49,6 +49,7 @@ type PendingBar = {
 };
 
 const DRAG_THRESHOLD_PX = 5;
+const SLOTS_PER_DAY = 24;
 
 type UseWorkLogDragOptions = {
   projectId: string;
@@ -61,6 +62,15 @@ type UseWorkLogDragOptions = {
   onBarClick?: (workLogId: string, anchor: { x: number; y: number }) => void;
 };
 
+/** 슬롯이 속한 날짜의 half-open 범위 [dayMin, dayMaxExclusive) */
+function daySlotBounds(slot: number): {
+  dayMin: number;
+  dayMaxExclusive: number;
+} {
+  const dayMin = Math.floor(slot / SLOTS_PER_DAY) * SLOTS_PER_DAY;
+  return { dayMin, dayMaxExclusive: dayMin + SLOTS_PER_DAY };
+}
+
 function computePreview(
   state: DragState,
   slotCount: number,
@@ -68,31 +78,47 @@ function computePreview(
   const { mode, anchorSlot, currentSlot, origStart, origEndExclusive } = state;
 
   if (mode === "create") {
-    const start = Math.min(anchorSlot, currentSlot);
-    const end = Math.max(anchorSlot, currentSlot) + 1;
+    // 생성도 시작 슬롯의 날짜 밖으로 나가지 않음
+    const { dayMin, dayMaxExclusive } = daySlotBounds(anchorSlot);
+    const start = Math.max(dayMin, Math.min(anchorSlot, currentSlot));
+    const end = Math.min(
+      dayMaxExclusive,
+      Math.max(anchorSlot, currentSlot) + 1,
+    );
     return { startSlot: start, endExclusiveSlot: end, isNew: true };
   }
 
+  // 리사이즈·이동은 원래 시작 시각이 속한 날짜 안에만 유지
+  const { dayMin, dayMaxExclusive } = daySlotBounds(origStart);
+
   if (mode === "resize-start") {
+    const endCap = Math.min(origEndExclusive, dayMaxExclusive);
+    const start = Math.max(dayMin, Math.min(currentSlot, endCap));
     return {
-      startSlot: currentSlot,
-      endExclusiveSlot: origEndExclusive,
+      startSlot: start,
+      endExclusiveSlot: endCap,
       isNew: false,
     };
   }
 
   if (mode === "resize-end") {
+    const startCap = Math.max(origStart, dayMin);
+    const endEx = Math.max(
+      startCap,
+      Math.min(dayMaxExclusive, currentSlot + 1),
+    );
     return {
-      startSlot: origStart,
-      endExclusiveSlot: currentSlot + 1,
+      startSlot: startCap,
+      endExclusiveSlot: endEx,
       isNew: false,
     };
   }
 
-  const span = origEndExclusive - origStart;
+  const span = Math.min(origEndExclusive - origStart, SLOTS_PER_DAY);
   const delta = currentSlot - anchorSlot;
   let start = origStart + delta;
-  start = Math.max(0, Math.min(slotCount - span, start));
+  const maxStart = Math.min(slotCount - span, dayMaxExclusive - span);
+  start = Math.max(dayMin, Math.min(maxStart, start));
   return {
     startSlot: start,
     endExclusiveSlot: start + span,
