@@ -127,6 +127,8 @@ export type Database = {
           name: string
           owner_id: string
           start_date: string
+          workday_end_hour: number
+          workday_start_hour: number
         }
         Insert: {
           created_at?: string
@@ -134,6 +136,8 @@ export type Database = {
           name: string
           owner_id: string
           start_date?: string
+          workday_end_hour?: number
+          workday_start_hour?: number
         }
         Update: {
           created_at?: string
@@ -141,6 +145,8 @@ export type Database = {
           name?: string
           owner_id?: string
           start_date?: string
+          workday_end_hour?: number
+          workday_start_hour?: number
         }
         Relationships: []
       }
@@ -206,6 +212,36 @@ export type Database = {
           },
         ]
       }
+      task_tags: {
+        Row: {
+          tag_id: string
+          task_id: string
+        }
+        Insert: {
+          tag_id: string
+          task_id: string
+        }
+        Update: {
+          tag_id?: string
+          task_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_tags_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       task_work_logs: {
         Row: {
           created_at: string
@@ -237,36 +273,6 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "task_work_logs_task_id_fkey"
-            columns: ["task_id"]
-            isOneToOne: false
-            referencedRelation: "tasks"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      task_tags: {
-        Row: {
-          tag_id: string
-          task_id: string
-        }
-        Insert: {
-          tag_id: string
-          task_id: string
-        }
-        Update: {
-          tag_id?: string
-          task_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "task_tags_tag_id_fkey"
-            columns: ["tag_id"]
-            isOneToOne: false
-            referencedRelation: "tags"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "task_tags_task_id_fkey"
             columns: ["task_id"]
             isOneToOne: false
             referencedRelation: "tasks"
@@ -342,6 +348,10 @@ export type Database = {
       }
       is_project_member: { Args: { p_project_id: string }; Returns: boolean }
       is_project_owner: { Args: { p_project_id: string }; Returns: boolean }
+      reorder_project_tasks: {
+        Args: { p_project_id: string; p_task_ids: string[] }
+        Returns: undefined
+      }
     }
     Enums: {
       project_role: "owner" | "member"

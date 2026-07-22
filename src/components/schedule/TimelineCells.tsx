@@ -5,6 +5,8 @@ import { usePlanDrag } from "@/components/schedule/use-plan-drag";
 import { useWorkLogDrag } from "@/components/schedule/use-work-log-drag";
 import WorkLogGanttBar from "@/components/schedule/WorkLogGanttBar";
 import WorkLogNotePopover from "@/components/schedule/WorkLogNotePopover";
+import type { DayColumnLayout } from "@/lib/schedule/day-workday-layout";
+import { totalDayLayoutsWidth } from "@/lib/schedule/day-workday-layout";
 import { getPlanBarPlacement } from "@/lib/schedule/plan-bar-placements";
 import {
   getWorkLogBarSegments,
@@ -12,6 +14,7 @@ import {
 } from "@/lib/schedule/work-log-bar-placements";
 import {
   getDayHourTickStep,
+  getDayHourTicksVisible,
   getMonthTickMode,
   getMonthTicks,
   getWeekDayTickVisible,
@@ -25,6 +28,8 @@ type TimelineCellsProps = {
   columns: TimelineColumn[];
   columnWidth: number;
   viewMode: ViewMode;
+  dayLayouts?: DayColumnLayout[];
+  sessionExpands?: Record<string, { early: boolean; late: boolean }>;
 };
 
 type NoteTarget = {
@@ -42,13 +47,18 @@ function formatWorkLogTitle(log: WorkLog): string {
 }
 
 function DayColumnGuides({
+  startHour,
+  endHour,
   columnWidth,
 }: {
+  startHour: number;
+  endHour: number;
   columnWidth: number;
 }) {
+  const span = Math.max(1, endHour - startHour);
   const step = getDayHourTickStep(columnWidth);
   const hours: number[] = [];
-  for (let h = step; h < 24; h += step) {
+  for (let h = startHour + step; h < endHour; h += step) {
     hours.push(h);
   }
 
@@ -58,7 +68,7 @@ function DayColumnGuides({
         <div
           key={hour}
           className="pointer-events-none absolute inset-y-0 w-px bg-zinc-200 dark:bg-zinc-700"
-          style={{ left: `${(hour / 24) * 100}%` }}
+          style={{ left: `${((hour - startHour) / span) * 100}%` }}
         />
       ))}
     </>
@@ -111,8 +121,14 @@ export default function TimelineCells({
   columns,
   columnWidth,
   viewMode,
+  dayLayouts,
+  sessionExpands = {},
 }: TimelineCellsProps) {
-  const totalWidth = columns.length * columnWidth;
+  const isDayView = viewMode === "day";
+  const totalWidth =
+    isDayView && dayLayouts
+      ? totalDayLayoutsWidth(dayLayouts)
+      : columns.length * columnWidth;
   const isWorkLogEditable = viewMode === "day";
   const isMemoView = isWorkLogEditable;
   const isPlanEditable = viewMode === "week" || viewMode === "month";
@@ -143,6 +159,7 @@ export default function TimelineCells({
     columnWidth,
     viewMode,
     workLogs: task.workLogs,
+    dayLayouts: isDayView ? dayLayouts : undefined,
     onBarClick: isMemoView ? handleBarClick : undefined,
   });
 
@@ -181,9 +198,15 @@ export default function TimelineCells({
   const workLogSegments = useMemo(
     () =>
       task.workLogs.flatMap((log) =>
-        getWorkLogBarSegments(viewMode, log, columns, columnWidth),
+        getWorkLogBarSegments(
+          viewMode,
+          log,
+          columns,
+          columnWidth,
+          isDayView ? dayLayouts : undefined,
+        ),
       ),
-    [task.workLogs, viewMode, columns, columnWidth],
+    [task.workLogs, viewMode, columns, columnWidth, isDayView, dayLayouts],
   );
 
   const planPlacement = useMemo(
@@ -207,6 +230,7 @@ export default function TimelineCells({
           workLogPreview.endExclusiveSlot,
           columnWidth,
           "__preview__",
+          dayLayouts,
         )
       : null;
 
@@ -239,17 +263,29 @@ export default function TimelineCells({
           }
         }}
       >
-        {columns.map((col) => {
+        {columns.map((col, index) => {
+          const layout = dayLayouts?.[index];
+          const width = isDayView && layout ? layout.width : columnWidth;
+          const session = sessionExpands[col.startDate];
+          const headerExpanded = Boolean(session?.early || session?.late);
+          const showDayGuides =
+            isDayView &&
+            layout &&
+            getDayHourTicksVisible(columnWidth, headerExpanded);
           const monthMode =
             viewMode === "month" ? getMonthTickMode(columnWidth) : "none";
           return (
             <div
               key={col.key}
               className="relative h-full shrink-0 border-r border-zinc-300 last:border-r-0 dark:border-zinc-700"
-              style={{ width: columnWidth }}
+              style={{ width }}
             >
-              {viewMode === "day" ? (
-                <DayColumnGuides columnWidth={columnWidth} />
+              {showDayGuides ? (
+                <DayColumnGuides
+                  startHour={layout.startHour}
+                  endHour={layout.endHour}
+                  columnWidth={width}
+                />
               ) : viewMode === "week" && getWeekDayTickVisible(columnWidth) ? (
                 <WeekColumnGuides />
               ) : monthMode !== "none" ? (

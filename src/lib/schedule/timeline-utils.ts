@@ -69,11 +69,18 @@ function latestBound(
   return dates.sort((a, b) => b.getTime() - a.getTime())[0];
 }
 
-/** 일 셀 너비에 따른 시간 눈금 간격 (시) */
-export function getDayHourTickStep(columnWidth: number): 1 | 3 | 6 {
+/** 일 셀 너비에 따른 시간 눈금 간격 (시). 6시간 단계는 쓰지 않음 */
+export function getDayHourTickStep(columnWidth: number): 1 | 3 {
   if (columnWidth >= 288) return 1;
-  if (columnWidth >= 144) return 3;
-  return 6;
+  return 3;
+}
+
+/** 최대 줌 아웃에서는 숨김. 헤더로 이른/야근 확장한 날은 예외로 표시 */
+export function getDayHourTicksVisible(
+  dayColumnWidth: number,
+  headerExpanded = false,
+): boolean {
+  return dayColumnWidth > 72 || headerExpanded;
 }
 
 /** 주 셀이 충분히 넓을 때만 하단 요일 날짜 눈금 표시 */

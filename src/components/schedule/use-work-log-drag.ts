@@ -5,6 +5,7 @@ import {
   deleteWorkLogAction,
   updateWorkLogAction,
 } from "@/app/schedule/actions";
+import type { DayColumnLayout } from "@/lib/schedule/day-workday-layout";
 import {
   getSlotCount,
   shouldDeleteWorkLog,
@@ -56,6 +57,7 @@ type UseWorkLogDragOptions = {
   columnWidth: number;
   viewMode: ViewMode;
   workLogs: WorkLog[];
+  dayLayouts?: DayColumnLayout[];
   onBarClick?: (workLogId: string, anchor: { x: number; y: number }) => void;
 };
 
@@ -112,6 +114,7 @@ export function useWorkLogDrag({
   columnWidth,
   viewMode,
   workLogs,
+  dayLayouts,
   onBarClick,
 }: UseWorkLogDragOptions) {
   const router = useRouter();
@@ -139,9 +142,10 @@ export function useWorkLogDrag({
         columnWidth,
         columns,
         viewMode,
+        dayLayouts,
       );
     },
-    [columnWidth, columns, viewMode],
+    [columnWidth, columns, viewMode, dayLayouts],
   );
 
   const activateBarDrag = useCallback((pendingBar: PendingBar) => {

@@ -1,6 +1,8 @@
+import type { DayColumnLayout } from "@/lib/schedule/day-workday-layout";
 import type { TimelineColumn, ViewMode } from "@/lib/schedule/types";
 import {
   getDayHourTickStep,
+  getDayHourTicksVisible,
   getMonthTickMode,
   getMonthTicks,
   getWeekDayTickVisible,
@@ -10,28 +12,46 @@ type TimelineHeaderProps = {
   columns: TimelineColumn[];
   columnWidth: number;
   viewMode: ViewMode;
+  dayLayouts?: DayColumnLayout[];
+  onExpandEarly?: (date: string) => void;
+  onExpandLate?: (date: string) => void;
+  onCollapseEarly?: (date: string) => void;
+  onCollapseLate?: (date: string) => void;
+  sessionExpands?: Record<string, { early: boolean; late: boolean }>;
 };
 
-function DayHourTicks({ columnWidth }: { columnWidth: number }) {
+function DayHourTicks({
+  startHour,
+  endHour,
+  columnWidth,
+}: {
+  startHour: number;
+  endHour: number;
+  columnWidth: number;
+}) {
+  const span = Math.max(1, endHour - startHour);
   const step = getDayHourTickStep(columnWidth);
   const hours: number[] = [];
-  for (let h = 0; h < 24; h += step) {
+  for (let h = startHour; h < endHour; h += step) {
     hours.push(h);
   }
 
   return (
     <div className="relative mt-0.5 h-3.5 border-t border-zinc-300 dark:border-zinc-600">
-      {hours.map((hour) => (
-        <span
-          key={hour}
-          className={`absolute top-0.5 text-[9px] leading-none font-normal text-zinc-500 dark:text-zinc-400 ${
-            hour === 0 ? "left-0" : "-translate-x-1/2"
-          }`}
-          style={hour === 0 ? undefined : { left: `${(hour / 24) * 100}%` }}
-        >
-          {hour}
-        </span>
-      ))}
+      {hours.map((hour) => {
+        const frac = (hour - startHour) / span;
+        return (
+          <span
+            key={hour}
+            className={`absolute top-0.5 text-[9px] leading-none font-normal text-zinc-500 dark:text-zinc-400 ${
+              frac === 0 ? "left-0" : "-translate-x-1/2"
+            }`}
+            style={frac === 0 ? undefined : { left: `${frac * 100}%` }}
+          >
+            {hour}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -101,6 +121,12 @@ export default function TimelineHeader({
   columns,
   columnWidth,
   viewMode,
+  dayLayouts,
+  onExpandEarly,
+  onExpandLate,
+  onCollapseEarly,
+  onCollapseLate,
+  sessionExpands = {},
 }: TimelineHeaderProps) {
   const isDayView = viewMode === "day";
   const isWeekView = viewMode === "week";
@@ -111,39 +137,96 @@ export default function TimelineHeader({
 
   return (
     <>
-      {columns.map((col) => (
-        <th
-          key={col.key}
-          data-timeline-zoom
-          className={`border border-zinc-300 bg-zinc-50 px-0.5 text-center font-medium dark:border-zinc-700 dark:bg-zinc-900 ${
-            useStackedHeader ? "py-1 text-xs" : "py-2 text-xs"
-          }`}
-          style={{ minWidth: columnWidth, width: columnWidth }}
-        >
-          {isDayView ? (
-            <div className="flex flex-col overflow-hidden">
-              <span className="leading-tight">{col.label}</span>
-              <DayHourTicks columnWidth={columnWidth} />
-            </div>
-          ) : showWeekTicks ? (
-            <div className="flex flex-col overflow-hidden">
-              <span className="leading-tight">{col.label}</span>
-              <WeekDayTicks startDate={col.startDate} />
-            </div>
-          ) : showMonthTicks ? (
-            <div className="flex flex-col overflow-hidden">
-              <span className="leading-tight">{col.label}</span>
-              <MonthSubTicks
-                startDate={col.startDate}
-                endDate={col.endDate}
-                mode={monthTickMode as "week" | "day"}
-              />
-            </div>
-          ) : (
-            col.label
-          )}
-        </th>
-      ))}
+      {columns.map((col, index) => {
+        const layout = dayLayouts?.[index];
+        const width = isDayView && layout ? layout.width : columnWidth;
+        const startHour = layout?.startHour ?? 0;
+        const endHour = layout?.endHour ?? 24;
+        const session = sessionExpands[col.startDate];
+        const headerExpanded = Boolean(session?.early || session?.late);
+        const showDayHourTicks =
+          isDayView && getDayHourTicksVisible(columnWidth, headerExpanded);
+        const canExpandEarly = isDayView && startHour > 0;
+        const canExpandLate = isDayView && endHour < 24;
+        const canCollapseEarly =
+          isDayView && Boolean(session?.early) && startHour === 0;
+        const canCollapseLate =
+          isDayView && Boolean(session?.late) && endHour === 24;
+
+        return (
+          <th
+            key={col.key}
+            data-timeline-zoom
+            className={`border border-zinc-300 bg-zinc-50 px-0.5 text-center font-medium dark:border-zinc-700 dark:bg-zinc-900 ${
+              useStackedHeader ? "py-1 text-xs" : "py-2 text-xs"
+            }`}
+            style={{ minWidth: width, width }}
+          >
+            {isDayView ? (
+              <div className="flex flex-col overflow-hidden">
+                <div className="flex items-center justify-center gap-0.5 leading-tight">
+                  {canExpandEarly || canCollapseEarly ? (
+                    <button
+                      type="button"
+                      title={canCollapseEarly ? "이른 오전 접기" : "이른 오전(0시)까지 확장"}
+                      className="rounded px-0.5 text-[10px] text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                      onClick={() =>
+                        canCollapseEarly
+                          ? onCollapseEarly?.(col.startDate)
+                          : onExpandEarly?.(col.startDate)
+                      }
+                    >
+                      {canCollapseEarly ? "›" : "‹"}
+                    </button>
+                  ) : (
+                    <span className="w-3" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{col.label}</span>
+                  {canExpandLate || canCollapseLate ? (
+                    <button
+                      type="button"
+                      title={canCollapseLate ? "야근 구간 접기" : "야근(24시)까지 확장"}
+                      className="rounded px-0.5 text-[10px] text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                      onClick={() =>
+                        canCollapseLate
+                          ? onCollapseLate?.(col.startDate)
+                          : onExpandLate?.(col.startDate)
+                      }
+                    >
+                      {canCollapseLate ? "‹" : "›"}
+                    </button>
+                  ) : (
+                    <span className="w-3" />
+                  )}
+                </div>
+                {showDayHourTicks ? (
+                  <DayHourTicks
+                    startHour={startHour}
+                    endHour={endHour}
+                    columnWidth={width}
+                  />
+                ) : null}
+              </div>
+            ) : showWeekTicks ? (
+              <div className="flex flex-col overflow-hidden">
+                <span className="leading-tight">{col.label}</span>
+                <WeekDayTicks startDate={col.startDate} />
+              </div>
+            ) : showMonthTicks ? (
+              <div className="flex flex-col overflow-hidden">
+                <span className="leading-tight">{col.label}</span>
+                <MonthSubTicks
+                  startDate={col.startDate}
+                  endDate={col.endDate}
+                  mode={monthTickMode as "week" | "day"}
+                />
+              </div>
+            ) : (
+              col.label
+            )}
+          </th>
+        );
+      })}
     </>
   );
 }

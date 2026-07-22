@@ -1,3 +1,5 @@
+import type { DayColumnLayout } from "./day-workday-layout";
+import { dayHourToPixel, xToDayLayoutIndex } from "./day-workday-layout";
 import type { TimelineColumn, ViewMode } from "./types";
 
 function addDaysStr(dateStr: string, days: number): string {
@@ -70,8 +72,28 @@ export function xToSlotIndex(
   columnWidth: number,
   columns: TimelineColumn[],
   _viewMode: ViewMode,
+  dayLayouts?: DayColumnLayout[],
 ): number {
   const x = clientX - containerLeft;
+
+  if (dayLayouts && dayLayouts.length > 0) {
+    const colIndex = xToDayLayoutIndex(x, dayLayouts);
+    const layout = dayLayouts[colIndex];
+    const span = Math.max(1, layout.endHour - layout.startHour);
+    const fracInCol =
+      layout.width > 0
+        ? Math.max(0, Math.min(0.9999, (x - layout.offset) / layout.width))
+        : 0;
+    const hour = Math.max(
+      layout.startHour,
+      Math.min(
+        layout.endHour - 1,
+        Math.floor(layout.startHour + fracInCol * span),
+      ),
+    );
+    return colIndex * 24 + hour;
+  }
+
   const colIndex = Math.max(
     0,
     Math.min(columns.length - 1, Math.floor(x / columnWidth)),
@@ -176,4 +198,16 @@ export function workLogToColumnRange(
 /** 시작·끝이 같거나 역전이면 삭제 대상 */
 export function shouldDeleteWorkLog(startedAt: string, endedAt: string): boolean {
   return endedAt <= startedAt;
+}
+
+/** 절대 시 슬롯 → 픽셀 (dayLayouts 있을 때) */
+export function slotToPixelWithLayouts(
+  slot: number,
+  dayLayouts: DayColumnLayout[],
+): number {
+  const col = Math.floor(slot / 24);
+  const hour = slot % 24;
+  const layout = dayLayouts[Math.max(0, Math.min(dayLayouts.length - 1, col))];
+  if (!layout) return 0;
+  return dayHourToPixel(layout, hour);
 }

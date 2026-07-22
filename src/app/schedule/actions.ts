@@ -82,15 +82,32 @@ export async function updateProjectAction(formData: FormData) {
   const projectId = formData.get("projectId");
   const name = formData.get("name");
   const startDate = formData.get("startDate");
+  const workdayStartHourRaw = formData.get("workdayStartHour");
+  const workdayEndHourRaw = formData.get("workdayEndHour");
 
   if (typeof projectId !== "string") return;
 
   const isOwner = await requireProjectOwner(projectId, user.id);
   if (!isOwner) throw new Error("프로젝트 소유자만 수정할 수 있습니다");
 
+  const workdayStartHour =
+    typeof workdayStartHourRaw === "string" && workdayStartHourRaw !== ""
+      ? Number(workdayStartHourRaw)
+      : undefined;
+  const workdayEndHour =
+    typeof workdayEndHourRaw === "string" && workdayEndHourRaw !== ""
+      ? Number(workdayEndHourRaw)
+      : undefined;
+
   await updateProject(projectId, {
     name: typeof name === "string" ? name : undefined,
     startDate: typeof startDate === "string" ? startDate : undefined,
+    workdayStartHour: Number.isFinite(workdayStartHour)
+      ? workdayStartHour
+      : undefined,
+    workdayEndHour: Number.isFinite(workdayEndHour)
+      ? workdayEndHour
+      : undefined,
   });
 
   revalidateSchedule(projectId);

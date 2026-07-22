@@ -68,6 +68,40 @@ export default async function ProjectSettingsPage({ params }: SettingsPageProps)
               className="rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
             />
           </label>
+          <div className="flex flex-wrap gap-3">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">근무 시작 시</span>
+              <select
+                name="workdayStartHour"
+                defaultValue={project.workdayStartHour}
+                className="rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
+              >
+                {Array.from({ length: 24 }, (_, h) => (
+                  <option key={h} value={h}>
+                    {String(h).padStart(2, "0")}:00
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">근무 종료 시</span>
+              <select
+                name="workdayEndHour"
+                defaultValue={project.workdayEndHour}
+                className="rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
+              >
+                {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => (
+                  <option key={h} value={h}>
+                    {h === 24 ? "24:00" : `${String(h).padStart(2, "0")}:00`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="text-xs text-zinc-500">
+            일 뷰에서 기본으로 보이는 시간 구간입니다. 시작 시가 종료 시보다
+            앞서야 합니다.
+          </p>
           <button
             type="submit"
             className="w-fit rounded-full bg-zinc-950 px-5 py-2 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-950"
@@ -79,6 +113,12 @@ export default async function ProjectSettingsPage({ params }: SettingsPageProps)
         <div className="rounded-lg border border-zinc-200 p-4 text-sm dark:border-zinc-800">
           <p className="font-medium">{project.name}</p>
           <p className="text-zinc-500">시작일: {project.startDate}</p>
+          <p className="text-zinc-500">
+            근무시간: {String(project.workdayStartHour).padStart(2, "0")}:00–
+            {project.workdayEndHour === 24
+              ? "24:00"
+              : `${String(project.workdayEndHour).padStart(2, "0")}:00`}
+          </p>
         </div>
       )}
 

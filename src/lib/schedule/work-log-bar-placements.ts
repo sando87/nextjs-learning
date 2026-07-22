@@ -1,3 +1,6 @@
+import type { DayColumnLayout } from "./day-workday-layout";
+import { dayHourToPixel } from "./day-workday-layout";
+import { slotToPixelWithLayouts } from "./work-log-timeline-utils";
 import type { TimelineColumn, ViewMode, WorkLog } from "./types";
 
 function parseDate(dateStr: string): Date {
@@ -39,18 +42,20 @@ export type WorkLogBarSegment = {
   span?: number;
 };
 
-/** 일 뷰: 컬럼 안에서 시작·종료 시각 비율로 위치/길이 */
+/** 일 뷰: 날짜별 가변 폭 기준 위치/길이 */
 function dayViewSegments(
   log: WorkLog,
   columns: TimelineColumn[],
   columnWidth: number,
+  dayLayouts?: DayColumnLayout[],
 ): WorkLogBarSegment[] {
   const startDt = parseDateTime(log.startedAt);
   const endDt = parseDateTime(log.endedAt);
 
   const startDateStr = formatDateStr(startDt);
   let endDateStr = formatDateStr(endDt);
-  let endFrac = endDt.getHours() / 24;
+  let endHour = endDt.getHours();
+  let endIsMidnight = false;
 
   if (
     endDt.getHours() === 0 &&
@@ -58,14 +63,34 @@ function dayViewSegments(
     endDt.getSeconds() === 0
   ) {
     endDateStr = addDaysStr(endDateStr, -1);
-    endFrac = 1;
+    endHour = 24;
+    endIsMidnight = true;
   }
 
   const startColIdx = columns.findIndex((c) => c.startDate === startDateStr);
   const endColIdx = columns.findIndex((c) => c.startDate === endDateStr);
   if (startColIdx === -1 || endColIdx === -1) return [];
 
+  if (dayLayouts && dayLayouts.length > 0) {
+    const startLayout = dayLayouts[startColIdx];
+    const endLayout = dayLayouts[endColIdx];
+    if (!startLayout || !endLayout) return [];
+    const left = dayHourToPixel(startLayout, startDt.getHours()) + 2;
+    const right =
+      dayHourToPixel(endLayout, endIsMidnight ? endLayout.endHour : endHour) -
+      2;
+    return [
+      {
+        segmentKey: log.id,
+        workLogId: log.id,
+        left: Math.max(left, 0),
+        width: Math.max(right - left, 4),
+      },
+    ];
+  }
+
   const startFrac = startDt.getHours() / 24;
+  const endFrac = endIsMidnight ? 1 : endHour / 24;
   const left = startColIdx * columnWidth + startFrac * columnWidth + 2;
   const right = endColIdx * columnWidth + endFrac * columnWidth - 2;
 
@@ -171,11 +196,12 @@ export function getWorkLogBarSegments(
   log: WorkLog,
   columns: TimelineColumn[],
   columnWidth: number,
+  dayLayouts?: DayColumnLayout[],
 ): WorkLogBarSegment[] {
   if (columns.length === 0) return [];
 
   if (viewMode === "day") {
-    return dayViewSegments(log, columns, columnWidth);
+    return dayViewSegments(log, columns, columnWidth, dayLayouts);
   }
   if (viewMode === "week") {
     return weekViewSegments(log, columns, columnWidth);
@@ -191,9 +217,10 @@ export function getAllWorkLogBarSegments(
   workLogs: WorkLog[],
   columns: TimelineColumn[],
   columnWidth: number,
+  dayLayouts?: DayColumnLayout[],
 ): WorkLogBarSegment[] {
   return workLogs.flatMap((log) =>
-    getWorkLogBarSegments(viewMode, log, columns, columnWidth),
+    getWorkLogBarSegments(viewMode, log, columns, columnWidth, dayLayouts),
   );
 }
 
@@ -204,12 +231,19 @@ export function previewToSegment(
   endExclusiveSlot: number,
   columnWidth: number,
   key: string,
+  dayLayouts?: DayColumnLayout[],
 ): WorkLogBarSegment | null {
   if (endExclusiveSlot <= startSlot) return null;
 
   if (viewMode === "day") {
-    const left = slotToPixel(startSlot, columnWidth) + 2;
-    const right = slotToPixel(endExclusiveSlot, columnWidth) - 2;
+    const left =
+      (dayLayouts
+        ? slotToPixelWithLayouts(startSlot, dayLayouts)
+        : slotToPixel(startSlot, columnWidth)) + 2;
+    const right =
+      (dayLayouts
+        ? slotToPixelWithLayouts(endExclusiveSlot, dayLayouts)
+        : slotToPixel(endExclusiveSlot, columnWidth)) - 2;
     return {
       segmentKey: key,
       workLogId: key,

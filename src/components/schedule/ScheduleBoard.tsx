@@ -35,6 +35,10 @@ import {
   type SortKey,
 } from "@/components/schedule/schedule-board-state";
 import { generateTimelineColumns } from "@/lib/schedule/timeline-utils";
+import {
+  buildDayColumnLayouts,
+  type DaySessionExpand,
+} from "@/lib/schedule/day-workday-layout";
 import type {
   Project,
   ProjectMember,
@@ -98,6 +102,10 @@ export default function ScheduleBoard({
   const [editingTarget, setEditingTarget] = useState<EditingTarget>(undefined);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
+  /** 일 뷰: 헤더로 연 이른/야근 확장 (날짜 키) */
+  const [daySessionExpands, setDaySessionExpands] = useState<
+    Record<string, DaySessionExpand>
+  >({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const dayWidthRef = useRef(dayColumnWidth);
   dayWidthRef.current = dayColumnWidth;
@@ -160,6 +168,31 @@ export default function ScheduleBoard({
       ),
     [viewMode, project.startDate, tasks],
   );
+
+  const allWorkLogs = useMemo(
+    () => tasks.flatMap((t) => t.workLogs),
+    [tasks],
+  );
+
+  const dayLayouts = useMemo(() => {
+    if (viewMode !== "day") return undefined;
+    return buildDayColumnLayouts(
+      columns,
+      allWorkLogs,
+      dayColumnWidth,
+      project.workdayStartHour,
+      project.workdayEndHour,
+      daySessionExpands,
+    );
+  }, [
+    viewMode,
+    columns,
+    allWorkLogs,
+    dayColumnWidth,
+    project.workdayStartHour,
+    project.workdayEndHour,
+    daySessionExpands,
+  ]);
 
   const columnWidth =
     viewMode === "day"
@@ -284,7 +317,22 @@ export default function ScheduleBoard({
     if (!el || nextScroll == null) return;
     pendingScrollLeftRef.current = null;
     el.scrollLeft = nextScroll;
-  }, [dayColumnWidth, weekColumnWidth, monthColumnWidth]);
+  }, [dayColumnWidth, weekColumnWidth, monthColumnWidth, dayLayouts]);
+
+  const patchDayExpand = useCallback(
+    (date: string, patch: Partial<DaySessionExpand>) => {
+      setDaySessionExpands((prev) => {
+        const current = prev[date] ?? { early: false, late: false };
+        const next = { ...current, ...patch };
+        if (!next.early && !next.late) {
+          const { [date]: _, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [date]: next };
+      });
+    },
+    [],
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -336,6 +384,18 @@ export default function ScheduleBoard({
                 columns={columns}
                 columnWidth={columnWidth}
                 viewMode={viewMode}
+                dayLayouts={dayLayouts}
+                sessionExpands={daySessionExpands}
+                onExpandEarly={(date) =>
+                  patchDayExpand(date, { early: true })
+                }
+                onExpandLate={(date) => patchDayExpand(date, { late: true })}
+                onCollapseEarly={(date) =>
+                  patchDayExpand(date, { early: false })
+                }
+                onCollapseLate={(date) =>
+                  patchDayExpand(date, { late: false })
+                }
               />
             </tr>
           </thead>
@@ -427,6 +487,8 @@ export default function ScheduleBoard({
                     columns={columns}
                     columnWidth={columnWidth}
                     viewMode={viewMode}
+                    dayLayouts={dayLayouts}
+                    sessionExpands={daySessionExpands}
                   />
                 </tr>
               ))

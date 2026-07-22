@@ -17,8 +17,15 @@ export type Project = {
   name: string;
   ownerId: string;
   startDate: string;
+  /** 일 뷰 기본 표시 시작 시 (0–23, half-open) */
+  workdayStartHour: number;
+  /** 일 뷰 기본 표시 종료 시 (1–24, half-open) */
+  workdayEndHour: number;
   createdAt: string;
 };
+
+export const DEFAULT_WORKDAY_START_HOUR = 9;
+export const DEFAULT_WORKDAY_END_HOUR = 18;
 
 export type ProjectMember = {
   id: string;
