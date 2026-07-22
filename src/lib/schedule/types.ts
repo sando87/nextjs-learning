@@ -1,7 +1,7 @@
 export const TASK_STATUSES = ["planned", "doing", "done", "hold"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
-export const VIEW_MODES = ["hour", "day", "week", "month"] as const;
+export const VIEW_MODES = ["day", "week", "month"] as const;
 export type ViewMode = (typeof VIEW_MODES)[number];
 
 export type ProjectRole = "owner" | "member";
@@ -66,8 +66,6 @@ export type TimelineColumn = {
   label: string;
   startDate: string;
   endDate: string;
-  /** hour 뷰 전용: 0–23 */
-  hour?: number;
 };
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {

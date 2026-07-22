@@ -1,14 +1,21 @@
 "use client";
 
-import GanttBar from "@/components/schedule/GanttBar";
+import PlanGanttBar from "@/components/schedule/PlanGanttBar";
+import { usePlanDrag } from "@/components/schedule/use-plan-drag";
 import { useWorkLogDrag } from "@/components/schedule/use-work-log-drag";
 import WorkLogGanttBar from "@/components/schedule/WorkLogGanttBar";
 import WorkLogNotePopover from "@/components/schedule/WorkLogNotePopover";
+import { getPlanBarPlacement } from "@/lib/schedule/plan-bar-placements";
 import {
   getWorkLogBarSegments,
   previewToSegment,
 } from "@/lib/schedule/work-log-bar-placements";
-import { getTaskColumnSpan } from "@/lib/schedule/timeline-utils";
+import {
+  getDayHourTickStep,
+  getMonthTickMode,
+  getMonthTicks,
+  getWeekDayTickVisible,
+} from "@/lib/schedule/timeline-utils";
 import type { Task, TimelineColumn, ViewMode, WorkLog } from "@/lib/schedule/types";
 import { useCallback, useMemo, useState } from "react";
 
@@ -34,6 +41,70 @@ function formatWorkLogTitle(log: WorkLog): string {
   return note ? `${time} — ${note}` : time;
 }
 
+function DayColumnGuides({
+  columnWidth,
+}: {
+  columnWidth: number;
+}) {
+  const step = getDayHourTickStep(columnWidth);
+  const hours: number[] = [];
+  for (let h = step; h < 24; h += step) {
+    hours.push(h);
+  }
+
+  return (
+    <>
+      {hours.map((hour) => (
+        <div
+          key={hour}
+          className="pointer-events-none absolute inset-y-0 w-px bg-zinc-200 dark:bg-zinc-700"
+          style={{ left: `${(hour / 24) * 100}%` }}
+        />
+      ))}
+    </>
+  );
+}
+
+function WeekColumnGuides() {
+  return (
+    <>
+      {[1, 2, 3, 4, 5, 6].map((dayOffset) => (
+        <div
+          key={dayOffset}
+          className="pointer-events-none absolute inset-y-0 w-px bg-zinc-200 dark:bg-zinc-700"
+          style={{ left: `${(dayOffset / 7) * 100}%` }}
+        />
+      ))}
+    </>
+  );
+}
+
+function MonthColumnGuides({
+  startDate,
+  endDate,
+  mode,
+}: {
+  startDate: string;
+  endDate: string;
+  mode: "week" | "day";
+}) {
+  const ticks = getMonthTicks(startDate, endDate, mode).filter(
+    (t) => t.frac > 0,
+  );
+
+  return (
+    <>
+      {ticks.map((tick) => (
+        <div
+          key={tick.key}
+          className="pointer-events-none absolute inset-y-0 w-px bg-zinc-200 dark:bg-zinc-700"
+          style={{ left: `${tick.frac * 100}%` }}
+        />
+      ))}
+    </>
+  );
+}
+
 export default function TimelineCells({
   projectId,
   task,
@@ -42,8 +113,10 @@ export default function TimelineCells({
   viewMode,
 }: TimelineCellsProps) {
   const totalWidth = columns.length * columnWidth;
-  const isEditableView = viewMode === "hour" || viewMode === "day";
-  const isMemoView = isEditableView;
+  const isWorkLogEditable = viewMode === "day";
+  const isMemoView = isWorkLogEditable;
+  const isPlanEditable = viewMode === "week" || viewMode === "month";
+  const showPlan = isPlanEditable;
   const [noteTarget, setNoteTarget] = useState<NoteTarget | null>(null);
 
   const handleBarClick = useCallback(
@@ -57,12 +130,12 @@ export default function TimelineCells({
   );
 
   const {
-    containerRef,
-    preview,
-    pending,
+    containerRef: workLogContainerRef,
+    preview: workLogPreview,
+    pending: workLogPending,
     draggingWorkLogId,
-    startCreate,
-    startBarPointerDown,
+    startCreate: startWorkLogCreate,
+    startBarPointerDown: startWorkLogBarPointerDown,
   } = useWorkLogDrag({
     projectId,
     taskId: task.id,
@@ -73,6 +146,38 @@ export default function TimelineCells({
     onBarClick: isMemoView ? handleBarClick : undefined,
   });
 
+  const {
+    containerRef: planContainerRef,
+    previewPlacement: planPreviewPlacement,
+    pending: planPending,
+    dragging: planDragging,
+    hasPlan,
+    startCreate: startPlanCreate,
+    startBarPointerDown: startPlanBarPointerDown,
+  } = usePlanDrag({
+    projectId,
+    taskId: task.id,
+    columns,
+    columnWidth,
+    startDate: task.startDate,
+    endDate: task.endDate,
+    enabled: isPlanEditable,
+  });
+
+  const setContainerRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      (
+        workLogContainerRef as React.MutableRefObject<HTMLDivElement | null>
+      ).current = el;
+      (
+        planContainerRef as React.MutableRefObject<HTMLDivElement | null>
+      ).current = el;
+    },
+    [workLogContainerRef, planContainerRef],
+  );
+
+  const pending = workLogPending || planPending;
+
   const workLogSegments = useMemo(
     () =>
       task.workLogs.flatMap((log) =>
@@ -81,60 +186,104 @@ export default function TimelineCells({
     [task.workLogs, viewMode, columns, columnWidth],
   );
 
-  const planSpan =
-    viewMode !== "hour"
-      ? getTaskColumnSpan(task.startDate, task.endDate, columns)
-      : null;
+  const planPlacement = useMemo(
+    () =>
+      showPlan
+        ? getPlanBarPlacement(
+            task.startDate,
+            task.endDate,
+            columns,
+            columnWidth,
+          )
+        : null,
+    [showPlan, task.startDate, task.endDate, columns, columnWidth],
+  );
 
-  const previewSegment =
-    isEditableView && preview
+  const workLogPreviewSegment =
+    isWorkLogEditable && workLogPreview
       ? previewToSegment(
           viewMode,
-          preview.startSlot,
-          preview.endExclusiveSlot,
+          workLogPreview.startSlot,
+          workLogPreview.endExclusiveSlot,
           columnWidth,
           "__preview__",
         )
       : null;
 
+  const needsContainerRef = isWorkLogEditable || isPlanEditable;
+
   return (
     <td
       colSpan={columns.length}
+      data-timeline-zoom
       className="relative border border-zinc-300 p-0 dark:border-zinc-700"
       style={{ width: totalWidth, minWidth: totalWidth, height: 36 }}
     >
       <div
-        ref={isEditableView ? containerRef : undefined}
+        ref={needsContainerRef ? setContainerRef : undefined}
         className={`relative flex h-full select-none ${
-          isEditableView ? "cursor-crosshair" : ""
+          isWorkLogEditable || (isPlanEditable && !hasPlan)
+            ? "cursor-crosshair"
+            : ""
         }`}
         style={{ width: totalWidth }}
         onPointerDown={(e) => {
-          if (!isEditableView || pending || e.button !== 0) return;
-          setNoteTarget(null);
-          startCreate(e.clientX);
+          if (pending || e.button !== 0) return;
+          if (isWorkLogEditable) {
+            setNoteTarget(null);
+            startWorkLogCreate(e.clientX);
+            return;
+          }
+          if (isPlanEditable && !hasPlan) {
+            startPlanCreate(e.clientX);
+          }
         }}
       >
-        {columns.map((col) => (
-          <div
-            key={col.key}
-            className={`h-full shrink-0 border-r border-zinc-300 last:border-r-0 dark:border-zinc-700 ${
-              viewMode === "hour" && col.hour === 0
-                ? "border-l-2 border-l-zinc-400 dark:border-l-zinc-500"
-                : ""
-            }`}
-            style={{ width: columnWidth }}
-          />
-        ))}
+        {columns.map((col) => {
+          const monthMode =
+            viewMode === "month" ? getMonthTickMode(columnWidth) : "none";
+          return (
+            <div
+              key={col.key}
+              className="relative h-full shrink-0 border-r border-zinc-300 last:border-r-0 dark:border-zinc-700"
+              style={{ width: columnWidth }}
+            >
+              {viewMode === "day" ? (
+                <DayColumnGuides columnWidth={columnWidth} />
+              ) : viewMode === "week" && getWeekDayTickVisible(columnWidth) ? (
+                <WeekColumnGuides />
+              ) : monthMode !== "none" ? (
+                <MonthColumnGuides
+                  startDate={col.startDate}
+                  endDate={col.endDate}
+                  mode={monthMode}
+                />
+              ) : null}
+            </div>
+          );
+        })}
 
-        {planSpan ? (
-          <GanttBar
-            status={task.status}
-            startIndex={planSpan.startIndex}
-            span={planSpan.span}
-            columnWidth={columnWidth}
+        {showPlan && planPlacement && !planDragging ? (
+          <PlanGanttBar
+            left={planPlacement.left}
+            width={planPlacement.width}
             title={`계획 ${task.startDate}–${task.endDate}`}
-            variant="plan"
+            interactive={isPlanEditable}
+            disabled={pending}
+            onBarPointerDown={
+              isPlanEditable ? startPlanBarPointerDown : undefined
+            }
+          />
+        ) : null}
+
+        {showPlan && planPreviewPlacement ? (
+          <PlanGanttBar
+            left={planPreviewPlacement.left}
+            width={planPreviewPlacement.width}
+            title="계획 미리보기"
+            isPreview
+            disabled
+            interactive={false}
           />
         ) : null}
 
@@ -152,20 +301,22 @@ export default function TimelineCells({
               width={seg.width}
               title={formatWorkLogTitle(log)}
               hasNote={isMemoView && Boolean(log.note)}
-              interactive={isEditableView}
+              interactive={isWorkLogEditable}
               disabled={pending}
-              onBarPointerDown={isEditableView ? startBarPointerDown : undefined}
+              onBarPointerDown={
+                isWorkLogEditable ? startWorkLogBarPointerDown : undefined
+              }
               onBarClick={isMemoView ? handleBarClick : undefined}
             />
           );
         })}
 
-        {previewSegment ? (
+        {workLogPreviewSegment ? (
           <WorkLogGanttBar
             workLogId="__preview__"
             status={task.status}
-            left={previewSegment.left}
-            width={previewSegment.width}
+            left={workLogPreviewSegment.left}
+            width={workLogPreviewSegment.width}
             title="미리보기"
             isPreview
             disabled

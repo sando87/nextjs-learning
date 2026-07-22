@@ -69,37 +69,75 @@ function latestBound(
   return dates.sort((a, b) => b.getTime() - a.getTime())[0];
 }
 
-function generateHourColumns(
-  projectStartDate: string,
-  taskEndDates: (string | null)[],
-  workLogEndAts: string[],
-  dayCount = 7,
-): TimelineColumn[] {
-  const start = parseDate(projectStartDate);
-  const latest = latestBound(taskEndDates, workLogEndAts);
-  let days = dayCount;
-  if (latest) {
-    const span =
-      Math.ceil((latest.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) +
-      1;
-    days = Math.max(dayCount, span);
-  }
+/** 일 셀 너비에 따른 시간 눈금 간격 (시) */
+export function getDayHourTickStep(columnWidth: number): 1 | 3 | 6 {
+  if (columnWidth >= 288) return 1;
+  if (columnWidth >= 144) return 3;
+  return 6;
+}
 
-  const columns: TimelineColumn[] = [];
-  for (let d = 0; d < days; d++) {
-    const day = addDays(start, d);
-    const dateStr = formatDateStr(day);
-    for (let hour = 0; hour < 24; hour++) {
-      columns.push({
-        key: `${dateStr}T${String(hour).padStart(2, "0")}`,
-        label: hour === 0 ? `${day.getMonth() + 1}/${day.getDate()} ${hour}` : String(hour).padStart(2, "0"),
-        startDate: dateStr,
-        endDate: dateStr,
-        hour,
+/** 주 셀이 충분히 넓을 때만 하단 요일 날짜 눈금 표시 */
+export function getWeekDayTickVisible(columnWidth: number): boolean {
+  return columnWidth >= 140;
+}
+
+export type MonthTickMode = "none" | "week" | "day";
+
+/** 월 셀 너비에 따라 하단 눈금: 없음 / 주 / 일 */
+export function getMonthTickMode(columnWidth: number): MonthTickMode {
+  if (columnWidth >= 360) return "day";
+  if (columnWidth >= 160) return "week";
+  return "none";
+}
+
+export type MonthTick = {
+  key: string;
+  label: string;
+  /** 0–1, 월 시작 기준 비율 */
+  frac: number;
+};
+
+/** 월 컬럼 하단·가이드용 눈금 위치 */
+export function getMonthTicks(
+  startDate: string,
+  endDate: string,
+  mode: "week" | "day",
+): MonthTick[] {
+  const monthStart = parseDate(startDate);
+  const monthEnd = parseDate(endDate);
+  const monthEndExclusive = addDays(monthEnd, 1);
+  const monthMs = monthEndExclusive.getTime() - monthStart.getTime();
+  if (monthMs <= 0) return [];
+
+  if (mode === "day") {
+    const ticks: MonthTick[] = [];
+    const days = monthEnd.getDate();
+    for (let d = 1; d <= days; d++) {
+      const dt = new Date(monthStart.getFullYear(), monthStart.getMonth(), d);
+      ticks.push({
+        key: formatDateStr(dt),
+        label: String(d),
+        frac: (dt.getTime() - monthStart.getTime()) / monthMs,
       });
     }
+    return ticks;
   }
-  return columns;
+
+  const ticks: MonthTick[] = [];
+  let ws = startOfWeek(monthStart);
+  while (ws <= monthEnd) {
+    const we = endOfWeek(ws);
+    if (we >= monthStart) {
+      const tickDate = ws < monthStart ? monthStart : ws;
+      ticks.push({
+        key: formatDateStr(tickDate),
+        label: String(tickDate.getDate()),
+        frac: (tickDate.getTime() - monthStart.getTime()) / monthMs,
+      });
+    }
+    ws = addDays(ws, 7);
+  }
+  return ticks;
 }
 
 export function generateTimelineColumns(
@@ -109,15 +147,6 @@ export function generateTimelineColumns(
   count = 14,
   workLogEndAts: string[] = [],
 ): TimelineColumn[] {
-  if (viewMode === "hour") {
-    return generateHourColumns(
-      projectStartDate,
-      taskEndDates,
-      workLogEndAts,
-      Math.max(count, 7),
-    );
-  }
-
   const start = parseDate(projectStartDate);
   // 계획 종료일 + 작업로그 종료일 모두 반영해 타임라인 길이를 잡음
   const latestEnd = latestBound(taskEndDates, workLogEndAts);
@@ -163,9 +192,15 @@ export function generateTimelineColumns(
     for (let i = 0; i < minCount; i++) {
       const ws = addDays(weekStart, i * 7);
       const we = endOfWeek(ws);
+      const startLabel = `${ws.getMonth() + 1}/${ws.getDate()}`;
+      // 같은 달이면 끝은 일만 (7/13~19), 월이 바뀌면 월/일 (7/28~8/3)
+      const endLabel =
+        ws.getMonth() === we.getMonth() && ws.getFullYear() === we.getFullYear()
+          ? String(we.getDate())
+          : `${we.getMonth() + 1}/${we.getDate()}`;
       columns.push({
-        key: `week-${i + 1}`,
-        label: `Week ${i + 1}`,
+        key: `week-${formatDateStr(ws)}`,
+        label: `${startLabel}~${endLabel}`,
         startDate: formatDateStr(ws),
         endDate: formatDateStr(we),
       });
@@ -257,46 +292,13 @@ export function workLogDateRange(
   return { startDate, endDate };
 }
 
-/**
- * 시 뷰: ended_at 미포함(half-open). 09:00–11:00 → 9·10시 칸
- * 일/주/월 뷰: 작업이 걸친 날짜가 포함된 컬럼
- */
+/** 일/주/월 뷰: 작업이 걸친 날짜가 포함된 컬럼 */
 export function getWorkLogColumnSpan(
   startedAt: string,
   endedAt: string,
   columns: TimelineColumn[],
 ): { startIndex: number; span: number } | null {
   if (columns.length === 0) return null;
-
-  if (columns[0].hour !== undefined) {
-    const start = parseDateTime(startedAt);
-    const end = parseDateTime(endedAt);
-
-    let startIndex = -1;
-    let endIndex = -1;
-
-    columns.forEach((col, index) => {
-      const day = parseDate(col.startDate);
-      const colStart = new Date(
-        day.getFullYear(),
-        day.getMonth(),
-        day.getDate(),
-        col.hour ?? 0,
-        0,
-        0,
-      );
-      const colEnd = new Date(colStart.getTime() + 60 * 60 * 1000);
-      const overlaps = start < colEnd && end > colStart;
-      if (overlaps) {
-        if (startIndex === -1) startIndex = index;
-        endIndex = index;
-      }
-    });
-
-    if (startIndex === -1) return null;
-    return { startIndex, span: endIndex - startIndex + 1 };
-  }
-
   const { startDate, endDate } = workLogDateRange(startedAt, endedAt);
   return getTaskColumnSpan(startDate, endDate, columns);
 }

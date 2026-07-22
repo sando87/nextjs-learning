@@ -30,81 +30,14 @@ function parseDateTime(value: string): Date {
   return new Date(y, m - 1, d, Number(hh), Number(mm), Number(ss));
 }
 
-function startOfWeek(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d;
-}
-
-function endOfWeek(date: Date): Date {
-  return addDays(startOfWeek(date), 6);
-}
-
 export type WorkLogBarSegment = {
   segmentKey: string;
   workLogId: string;
   left: number;
   width: number;
-  /** column index (hour 뷰 드래그용) */
   startIndex?: number;
   span?: number;
 };
-
-function logOverlapsRange(
-  startedAt: string,
-  endedAt: string,
-  rangeStart: Date,
-  rangeEndExclusive: Date,
-): boolean {
-  const start = parseDateTime(startedAt);
-  const end = parseDateTime(endedAt);
-  return start < rangeEndExclusive && end > rangeStart;
-}
-
-function hourViewSegments(
-  log: WorkLog,
-  columns: TimelineColumn[],
-  columnWidth: number,
-): WorkLogBarSegment[] {
-  const start = parseDateTime(log.startedAt);
-  const end = parseDateTime(log.endedAt);
-
-  let startIndex = -1;
-  let endIndex = -1;
-
-  columns.forEach((col, index) => {
-    const day = parseDate(col.startDate);
-    const colStart = new Date(
-      day.getFullYear(),
-      day.getMonth(),
-      day.getDate(),
-      col.hour ?? 0,
-      0,
-      0,
-    );
-    const colEnd = new Date(colStart.getTime() + 60 * 60 * 1000);
-    if (start < colEnd && end > colStart) {
-      if (startIndex === -1) startIndex = index;
-      endIndex = index;
-    }
-  });
-
-  if (startIndex === -1) return [];
-
-  const span = endIndex - startIndex + 1;
-  return [
-    {
-      segmentKey: log.id,
-      workLogId: log.id,
-      left: startIndex * columnWidth + 2,
-      width: Math.max(span * columnWidth - 4, 4),
-      startIndex,
-      span,
-    },
-  ];
-}
 
 /** 일 뷰: 컬럼 안에서 시작·종료 시각 비율로 위치/길이 */
 function dayViewSegments(
@@ -146,87 +79,91 @@ function dayViewSegments(
   ];
 }
 
-/** 주 뷰: 주 컬럼을 7칸(일)으로 나누고, 작업 있는 날만 표시 */
+/** 주 뷰: 실제 시작·종료 시각에 맞춘 연속 바 (일 단위 분할 없음) */
 function weekViewSegments(
   log: WorkLog,
   columns: TimelineColumn[],
   columnWidth: number,
 ): WorkLogBarSegment[] {
-  const segments: WorkLogBarSegment[] = [];
-  const slotWidth = columnWidth / 7;
-  const barPad = 1;
-
-  columns.forEach((col, colIndex) => {
-    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
-      const dateStr = addDaysStr(col.startDate, dayOffset);
-      const dayStart = parseDateTime(`${dateStr}T00:00:00`);
-      const dayEnd = parseDateTime(`${addDaysStr(dateStr, 1)}T00:00:00`);
-
-      if (!logOverlapsRange(log.startedAt, log.endedAt, dayStart, dayEnd)) {
-        continue;
-      }
-
-      segments.push({
-        segmentKey: `${log.id}-${col.key}-d${dayOffset}`,
-        workLogId: log.id,
-        left: colIndex * columnWidth + dayOffset * slotWidth + barPad,
-        width: Math.max(slotWidth - barPad * 2, 3),
-      });
-    }
+  return continuousRangeSegments(log, columns, columnWidth, (col) => {
+    const start = parseDate(col.startDate);
+    const endExclusive = addDays(parseDate(col.endDate), 1);
+    return { start, endExclusive };
   });
-
-  return segments;
 }
 
-function weeksInMonth(monthStartStr: string, monthEndStr: string) {
-  const monthStart = parseDate(monthStartStr);
-  const monthEnd = parseDate(monthEndStr);
-  let weekStart = startOfWeek(monthStart);
-  const weeks: { startDate: string; endDate: string }[] = [];
-
-  while (weekStart <= monthEnd) {
-    const weekEnd = endOfWeek(weekStart);
-    weeks.push({
-      startDate: formatDateStr(weekStart),
-      endDate: formatDateStr(weekEnd),
-    });
-    weekStart = addDays(weekStart, 7);
-  }
-
-  return weeks;
-}
-
-/** 월 뷰: 월 컬럼을 주 단위 칸으로 나누고, 작업 있는 주만 표시 */
+/** 월 뷰: 실제 시작·종료 시각에 맞춘 연속 바 (주 단위 분할 없음) */
 function monthViewSegments(
   log: WorkLog,
   columns: TimelineColumn[],
   columnWidth: number,
 ): WorkLogBarSegment[] {
-  const segments: WorkLogBarSegment[] = [];
-
-  columns.forEach((col, colIndex) => {
-    const weeks = weeksInMonth(col.startDate, col.endDate);
-    const slotWidth = columnWidth / weeks.length;
-    const barPad = 1;
-
-    weeks.forEach((week, weekIndex) => {
-      const weekStart = parseDateTime(`${week.startDate}T00:00:00`);
-      const weekEnd = parseDateTime(`${addDaysStr(week.endDate, 1)}T00:00:00`);
-
-      if (!logOverlapsRange(log.startedAt, log.endedAt, weekStart, weekEnd)) {
-        return;
-      }
-
-      segments.push({
-        segmentKey: `${log.id}-${col.key}-w${weekIndex}`,
-        workLogId: log.id,
-        left: colIndex * columnWidth + weekIndex * slotWidth + barPad,
-        width: Math.max(slotWidth - barPad * 2, 3),
-      });
-    });
+  return continuousRangeSegments(log, columns, columnWidth, (col) => {
+    const start = parseDate(col.startDate);
+    const endExclusive = addDays(parseDate(col.endDate), 1);
+    return { start, endExclusive };
   });
+}
 
-  return segments;
+function continuousRangeSegments(
+  log: WorkLog,
+  columns: TimelineColumn[],
+  columnWidth: number,
+  rangeOf: (col: TimelineColumn) => { start: Date; endExclusive: Date },
+): WorkLogBarSegment[] {
+  function dateTimeToPixel(dt: Date): number | null {
+    for (let i = 0; i < columns.length; i++) {
+      const { start, endExclusive } = rangeOf(columns[i]);
+      const spanMs = endExclusive.getTime() - start.getTime();
+      if (spanMs <= 0) continue;
+      if (dt >= start && dt < endExclusive) {
+        const frac = (dt.getTime() - start.getTime()) / spanMs;
+        return i * columnWidth + frac * columnWidth;
+      }
+    }
+    return null;
+  }
+
+  const startDt = parseDateTime(log.startedAt);
+  const endDt = parseDateTime(log.endedAt);
+
+  const left = dateTimeToPixel(startDt);
+  let right = dateTimeToPixel(endDt);
+
+  if (right == null && columns.length > 0) {
+    const lastEnd = rangeOf(columns[columns.length - 1]).endExclusive;
+    if (endDt.getTime() === lastEnd.getTime()) {
+      right = columns.length * columnWidth;
+    }
+  }
+
+  let clippedLeft = left;
+  if (clippedLeft == null && columns.length > 0) {
+    const firstStart = rangeOf(columns[0]).start;
+    if (startDt < firstStart && endDt > firstStart) {
+      clippedLeft = 0;
+    }
+  }
+
+  let clippedRight = right;
+  if (clippedRight == null && columns.length > 0) {
+    const lastEnd = rangeOf(columns[columns.length - 1]).endExclusive;
+    if (endDt > lastEnd && startDt < lastEnd) {
+      clippedRight = columns.length * columnWidth;
+    }
+  }
+
+  if (clippedLeft == null || clippedRight == null) return [];
+  if (clippedRight <= clippedLeft) return [];
+
+  return [
+    {
+      segmentKey: log.id,
+      workLogId: log.id,
+      left: Math.max(clippedLeft + 2, 0),
+      width: Math.max(clippedRight - clippedLeft - 4, 4),
+    },
+  ];
 }
 
 export function getWorkLogBarSegments(
@@ -237,9 +174,6 @@ export function getWorkLogBarSegments(
 ): WorkLogBarSegment[] {
   if (columns.length === 0) return [];
 
-  if (viewMode === "hour") {
-    return hourViewSegments(log, columns, columnWidth);
-  }
   if (viewMode === "day") {
     return dayViewSegments(log, columns, columnWidth);
   }
@@ -263,7 +197,7 @@ export function getAllWorkLogBarSegments(
   );
 }
 
-/** hour·day 뷰 드래그 미리보기 → 픽셀 세그먼트 */
+/** day 뷰 드래그 미리보기 → 픽셀 세그먼트 */
 export function previewToSegment(
   viewMode: ViewMode,
   startSlot: number,
@@ -272,18 +206,6 @@ export function previewToSegment(
   key: string,
 ): WorkLogBarSegment | null {
   if (endExclusiveSlot <= startSlot) return null;
-
-  if (viewMode === "hour") {
-    const span = endExclusiveSlot - startSlot;
-    return {
-      segmentKey: key,
-      workLogId: key,
-      left: startSlot * columnWidth + 2,
-      width: Math.max(span * columnWidth - 4, 4),
-      startIndex: startSlot,
-      span,
-    };
-  }
 
   if (viewMode === "day") {
     const left = slotToPixel(startSlot, columnWidth) + 2;
@@ -303,22 +225,4 @@ function slotToPixel(slot: number, columnWidth: number): number {
   const col = Math.floor(slot / 24);
   const hour = slot % 24;
   return col * columnWidth + (hour / 24) * columnWidth;
-}
-
-/** @deprecated previewToSegment(viewMode, ...) 사용 */
-export function previewHourToSegment(
-  startIndex: number,
-  endIndexExclusive: number,
-  columnWidth: number,
-  key: string,
-): WorkLogBarSegment {
-  const span = endIndexExclusive - startIndex;
-  return {
-    segmentKey: key,
-    workLogId: key,
-    left: startIndex * columnWidth + 2,
-    width: Math.max(span * columnWidth - 4, 4),
-    startIndex,
-    span,
-  };
 }

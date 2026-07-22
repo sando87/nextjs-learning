@@ -253,6 +253,38 @@ export async function updateTaskAction(formData: FormData) {
   revalidateSchedule(projectId);
 }
 
+/** 계획 일정(start_date/end_date)만 갱신. 빈 문자열이면 일정 삭제 */
+export async function updateTaskDatesAction(formData: FormData) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const projectId = formData.get("projectId");
+  const taskId = formData.get("taskId");
+  const startDate = formData.get("startDate");
+  const endDate = formData.get("endDate");
+
+  if (typeof projectId !== "string" || typeof taskId !== "string") return;
+  if (typeof startDate !== "string" || typeof endDate !== "string") return;
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) throw new Error("프로젝트 멤버만 업무를 수정할 수 있습니다");
+
+  // 드래그로 길이를 없애면 계획 일정 클리어
+  if (!startDate && !endDate) {
+    await updateTask(taskId, { startDate: null, endDate: null });
+    revalidateSchedule(projectId);
+    return;
+  }
+
+  if (!startDate || !endDate) return;
+  if (endDate < startDate) {
+    throw new Error("종료일은 시작일 이후여야 합니다");
+  }
+
+  await updateTask(taskId, { startDate, endDate });
+  revalidateSchedule(projectId);
+}
+
 export async function deleteTaskAction(formData: FormData) {
   const user = await requireUser();
   if (!user) redirect("/login");

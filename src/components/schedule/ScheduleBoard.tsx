@@ -16,11 +16,20 @@ import {
   toInsertIndex,
 } from "@/components/schedule/schedule-board-tasks";
 import {
+  clampDayColumnWidth,
+  clampMonthColumnWidth,
+  clampWeekColumnWidth,
   COLUMN_LABELS,
+  DAY_COLUMN_WIDTH_STEP,
+  DEFAULT_DAY_COLUMN_WIDTH,
   DEFAULT_FILTERS,
+  DEFAULT_MONTH_COLUMN_WIDTH,
   DEFAULT_VISIBLE_COLUMNS,
+  DEFAULT_WEEK_COLUMN_WIDTH,
   loadBoardPreferences,
+  MONTH_COLUMN_WIDTH_STEP,
   saveBoardPreferences,
+  WEEK_COLUMN_WIDTH_STEP,
   type BoardFilters,
   type ColumnKey,
   type SortKey,
@@ -34,7 +43,15 @@ import type {
   ViewMode,
 } from "@/lib/schedule/types";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 
 type ScheduleBoardProps = {
   project: Project;
@@ -44,7 +61,6 @@ type ScheduleBoardProps = {
 };
 
 const COLUMN_WIDTH = 72;
-const HOUR_COLUMN_WIDTH = 36;
 
 /** undefined=닫힘, null=신규, string=수정 대상 id */
 type EditingTarget = string | null | undefined;
@@ -60,6 +76,15 @@ export default function ScheduleBoard({
   const saved = loadBoardPreferences(project.id);
 
   const [viewMode, setViewMode] = useState<ViewMode>(saved.viewMode ?? "week");
+  const [dayColumnWidth, setDayColumnWidth] = useState(
+    saved.dayColumnWidth ?? DEFAULT_DAY_COLUMN_WIDTH,
+  );
+  const [weekColumnWidth, setWeekColumnWidth] = useState(
+    saved.weekColumnWidth ?? DEFAULT_WEEK_COLUMN_WIDTH,
+  );
+  const [monthColumnWidth, setMonthColumnWidth] = useState(
+    saved.monthColumnWidth ?? DEFAULT_MONTH_COLUMN_WIDTH,
+  );
   const [sortKey, setSortKey] = useState<SortKey>(
     resolveSortKey(saved.sortKey),
   );
@@ -73,6 +98,15 @@ export default function ScheduleBoard({
   const [editingTarget, setEditingTarget] = useState<EditingTarget>(undefined);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const dayWidthRef = useRef(dayColumnWidth);
+  dayWidthRef.current = dayColumnWidth;
+  const weekWidthRef = useRef(weekColumnWidth);
+  weekWidthRef.current = weekColumnWidth;
+  const monthWidthRef = useRef(monthColumnWidth);
+  monthWidthRef.current = monthColumnWidth;
+  /** 줌 후 커서 아래 지점을 유지하기 위한 scrollLeft */
+  const pendingScrollLeftRef = useRef<number | null>(null);
 
   const editingTask: Task | null | undefined =
     editingTarget === undefined
@@ -81,21 +115,39 @@ export default function ScheduleBoard({
         ? null
         : tasks.find((t) => t.id === editingTarget);
 
-  const persist = (
-    next: Partial<{
-      viewMode: ViewMode;
-      sortKey: SortKey;
-      visibleColumns: Record<ColumnKey, boolean>;
-      filters: BoardFilters;
-    }>,
-  ) => {
-    saveBoardPreferences(project.id, {
-      viewMode: next.viewMode ?? viewMode,
-      sortKey: next.sortKey ?? sortKey,
-      visibleColumns: next.visibleColumns ?? visibleColumns,
-      filters: next.filters ?? filters,
-    });
-  };
+  const persist = useCallback(
+    (
+      next: Partial<{
+        viewMode: ViewMode;
+        sortKey: SortKey;
+        visibleColumns: Record<ColumnKey, boolean>;
+        filters: BoardFilters;
+        dayColumnWidth: number;
+        weekColumnWidth: number;
+        monthColumnWidth: number;
+      }>,
+    ) => {
+      saveBoardPreferences(project.id, {
+        viewMode: next.viewMode ?? viewMode,
+        sortKey: next.sortKey ?? sortKey,
+        visibleColumns: next.visibleColumns ?? visibleColumns,
+        filters: next.filters ?? filters,
+        dayColumnWidth: next.dayColumnWidth ?? dayColumnWidth,
+        weekColumnWidth: next.weekColumnWidth ?? weekColumnWidth,
+        monthColumnWidth: next.monthColumnWidth ?? monthColumnWidth,
+      });
+    },
+    [
+      project.id,
+      viewMode,
+      sortKey,
+      visibleColumns,
+      filters,
+      dayColumnWidth,
+      weekColumnWidth,
+      monthColumnWidth,
+    ],
+  );
 
   const columns = useMemo(
     () =>
@@ -109,8 +161,17 @@ export default function ScheduleBoard({
     [viewMode, project.startDate, tasks],
   );
 
-  const columnWidth = viewMode === "hour" ? HOUR_COLUMN_WIDTH : COLUMN_WIDTH;
+  const columnWidth =
+    viewMode === "day"
+      ? dayColumnWidth
+      : viewMode === "week"
+        ? weekColumnWidth
+        : viewMode === "month"
+          ? monthColumnWidth
+          : COLUMN_WIDTH;
   const canReorder = sortKey === "sortOrder";
+  const isZoomableView =
+    viewMode === "day" || viewMode === "week" || viewMode === "month";
 
   const visibleTasks = useMemo(
     () => sortTasks(applyFilters(tasks, filters), sortKey),
@@ -149,6 +210,82 @@ export default function ScheduleBoard({
     });
   };
 
+  // 패시브 기본 리스너에서는 preventDefault가 무시되므로 직접 등록
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !isZoomableView) return;
+
+    const onWheel = (e: WheelEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest("[data-timeline-zoom]")) return;
+
+      e.preventDefault();
+      const prevWidth =
+        viewMode === "day"
+          ? dayWidthRef.current
+          : viewMode === "week"
+            ? weekWidthRef.current
+            : monthWidthRef.current;
+      const step =
+        viewMode === "day"
+          ? DAY_COLUMN_WIDTH_STEP
+          : viewMode === "week"
+            ? WEEK_COLUMN_WIDTH_STEP
+            : MONTH_COLUMN_WIDTH_STEP;
+      const delta = e.deltaY > 0 ? -step : step;
+      const nextWidth =
+        viewMode === "day"
+          ? clampDayColumnWidth(prevWidth + delta)
+          : viewMode === "week"
+            ? clampWeekColumnWidth(prevWidth + delta)
+            : clampMonthColumnWidth(prevWidth + delta);
+      if (nextWidth === prevWidth) return;
+
+      // 커서 아래 타임라인 지점이 줌 후에도 같은 화면에 남도록 scrollLeft 계산
+      const rect = el.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const contentX = el.scrollLeft + mouseX;
+      const firstTimeline = el.querySelector(
+        "[data-timeline-zoom]",
+      ) as HTMLElement | null;
+      const timelineStart =
+        firstTimeline != null
+          ? el.scrollLeft +
+            (firstTimeline.getBoundingClientRect().left - rect.left)
+          : 0;
+      const timelineX = contentX - timelineStart;
+      const scale = nextWidth / prevWidth;
+      pendingScrollLeftRef.current =
+        timelineStart + timelineX * scale - mouseX;
+
+      if (viewMode === "day") {
+        dayWidthRef.current = nextWidth;
+        setDayColumnWidth(nextWidth);
+        persist({ dayColumnWidth: nextWidth });
+      } else if (viewMode === "week") {
+        weekWidthRef.current = nextWidth;
+        setWeekColumnWidth(nextWidth);
+        persist({ weekColumnWidth: nextWidth });
+      } else {
+        monthWidthRef.current = nextWidth;
+        setMonthColumnWidth(nextWidth);
+        persist({ monthColumnWidth: nextWidth });
+      }
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [viewMode, isZoomableView, persist]);
+
+  // DOM 너비 반영 직후 커서 중심 스크롤 적용
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const nextScroll = pendingScrollLeftRef.current;
+    if (!el || nextScroll == null) return;
+    pendingScrollLeftRef.current = null;
+    el.scrollLeft = nextScroll;
+  }, [dayColumnWidth, weekColumnWidth, monthColumnWidth]);
+
   return (
     <div className="flex flex-col gap-4">
       <ScheduleToolbar
@@ -178,7 +315,10 @@ export default function ScheduleBoard({
         onAddTask={() => setEditingTarget(null)}
       />
 
-      <div className="overflow-x-auto rounded border border-zinc-300 dark:border-zinc-700">
+      <div
+        ref={scrollRef}
+        className="overflow-x-auto rounded border border-zinc-300 dark:border-zinc-700"
+      >
         <table className="w-max min-w-full border-collapse text-sm">
           <thead>
             <tr>
@@ -192,7 +332,11 @@ export default function ScheduleBoard({
                   {col.label}
                 </th>
               ))}
-              <TimelineHeader columns={columns} columnWidth={columnWidth} />
+              <TimelineHeader
+                columns={columns}
+                columnWidth={columnWidth}
+                viewMode={viewMode}
+              />
             </tr>
           </thead>
           <tbody>
