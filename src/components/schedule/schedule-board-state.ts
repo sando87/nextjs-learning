@@ -3,15 +3,15 @@ export type ColumnKey =
   | "state"
   | "priority"
   | "tags"
-  | "links"
   | "workHours";
+
+export type BoardLayout = "board" | "hierarchy";
 
 export const COLUMN_LABELS: Record<ColumnKey, string> = {
   worker: "Worker",
   state: "State",
   priority: "Priority",
   tags: "Tags",
-  links: "Links",
   workHours: "WorkHours",
 };
 
@@ -20,7 +20,6 @@ export const DEFAULT_VISIBLE_COLUMNS: Record<ColumnKey, boolean> = {
   state: true,
   priority: false,
   tags: true,
-  links: false,
   workHours: true,
 };
 
@@ -60,12 +59,14 @@ export const MONTH_COLUMN_WIDTH_STEP = 24;
 
 export type BoardPreferences = {
   viewMode: "day" | "week" | "month";
+  boardLayout: BoardLayout;
   sortKey: SortKey;
   visibleColumns: Record<ColumnKey, boolean>;
   filters: BoardFilters;
   dayColumnWidth: number;
   weekColumnWidth: number;
   monthColumnWidth: number;
+  collapsedIds: string[];
 };
 
 function clampDayColumnWidth(width: number): number {
@@ -100,12 +101,14 @@ export function loadBoardPreferences(projectId: string): Partial<BoardPreference
     if (!raw) return {};
     const parsed = JSON.parse(raw) as {
       viewMode?: string;
+      boardLayout?: string;
       sortKey?: SortKey;
       visibleColumns?: Partial<Record<ColumnKey, boolean>>;
       filters?: BoardFilters;
       dayColumnWidth?: number;
       weekColumnWidth?: number;
       monthColumnWidth?: number;
+      collapsedIds?: string[];
     };
     const result: Partial<BoardPreferences> = {};
 
@@ -115,9 +118,18 @@ export function loadBoardPreferences(projectId: string): Partial<BoardPreference
       result.viewMode = parsed.viewMode;
     }
 
+    if (parsed.boardLayout === "board" || parsed.boardLayout === "hierarchy") {
+      result.boardLayout = parsed.boardLayout;
+    }
+
     if (parsed.sortKey) result.sortKey = parsed.sortKey;
     if (parsed.visibleColumns) {
-      result.visibleColumns = parsed.visibleColumns as BoardPreferences["visibleColumns"];
+      const cleaned = { ...parsed.visibleColumns };
+      delete (cleaned as { links?: boolean }).links;
+      result.visibleColumns = {
+        ...DEFAULT_VISIBLE_COLUMNS,
+        ...cleaned,
+      };
     }
     if (parsed.filters) result.filters = parsed.filters;
     if (typeof parsed.dayColumnWidth === "number") {
@@ -128,6 +140,11 @@ export function loadBoardPreferences(projectId: string): Partial<BoardPreference
     }
     if (typeof parsed.monthColumnWidth === "number") {
       result.monthColumnWidth = clampMonthColumnWidth(parsed.monthColumnWidth);
+    }
+    if (Array.isArray(parsed.collapsedIds)) {
+      result.collapsedIds = parsed.collapsedIds.filter(
+        (id): id is string => typeof id === "string",
+      );
     }
     return result;
   } catch {

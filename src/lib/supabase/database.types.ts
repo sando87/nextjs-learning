@@ -179,39 +179,6 @@ export type Database = {
           },
         ]
       }
-      task_links: {
-        Row: {
-          id: string
-          source_task_id: string
-          target_task_id: string
-        }
-        Insert: {
-          id?: string
-          source_task_id: string
-          target_task_id: string
-        }
-        Update: {
-          id?: string
-          source_task_id?: string
-          target_task_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "task_links_source_task_id_fkey"
-            columns: ["source_task_id"]
-            isOneToOne: false
-            referencedRelation: "tasks"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "task_links_target_task_id_fkey"
-            columns: ["target_task_id"]
-            isOneToOne: false
-            referencedRelation: "tasks"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       task_tags: {
         Row: {
           tag_id: string
@@ -286,6 +253,7 @@ export type Database = {
           created_at: string
           end_date: string | null
           id: string
+          parent_id: string | null
           priority: number
           project_id: string
           sort_order: number
@@ -299,6 +267,7 @@ export type Database = {
           created_at?: string
           end_date?: string | null
           id?: string
+          parent_id?: string | null
           priority?: number
           project_id: string
           sort_order?: number
@@ -312,6 +281,7 @@ export type Database = {
           created_at?: string
           end_date?: string | null
           id?: string
+          parent_id?: string | null
           priority?: number
           project_id?: string
           sort_order?: number
@@ -326,6 +296,13 @@ export type Database = {
             columns: ["assignee_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
             referencedColumns: ["id"]
           },
           {

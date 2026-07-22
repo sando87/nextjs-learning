@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfilesByIds } from "@/lib/schedule/profiles-store";
 import { getWorkLogsByTaskIds } from "@/lib/schedule/work-logs-store";
 import { computeSortOrderUpdates } from "@/lib/schedule/task-sort-order";
+import { isDescendantOf } from "@/lib/schedule/task-tree";
 import type { Tag, Task, TaskStatus, WorkLog } from "./types";
 
 type TaskRow = {
@@ -14,6 +15,8 @@ type TaskRow = {
   end_date: string | null;
   priority: number;
   sort_order: number;
+  parent_id: string | null;
+  created_at: string;
 };
 
 type TagRow = {
@@ -23,10 +26,8 @@ type TagRow = {
   color: string;
 };
 
-type LinkRow = {
-  source_task_id: string;
-  target_task_id: string;
-};
+const TASK_SELECT =
+  "id, project_id, title, assignee_id, status, start_date, end_date, priority, sort_order, parent_id, created_at";
 
 function toTag(row: TagRow): Tag {
   return {
@@ -41,7 +42,6 @@ function toTask(
   row: TaskRow,
   assignee: Task["assignee"],
   tags: Tag[] = [],
-  linkedTaskIds: string[] = [],
   workLogs: WorkLog[] = [],
 ): Task {
   return {
@@ -55,8 +55,9 @@ function toTask(
     endDate: row.end_date,
     priority: row.priority,
     sortOrder: row.sort_order,
+    parentId: row.parent_id,
+    createdAt: row.created_at,
     tags,
-    linkedTaskIds,
     workLogs,
   };
 }
@@ -66,9 +67,7 @@ export async function getTasksByProject(projectId: string): Promise<Task[]> {
 
   const { data: tasks, error: taskError } = await supabase
     .from("tasks")
-    .select(
-      "id, project_id, title, assignee_id, status, start_date, end_date, priority, sort_order",
-    )
+    .select(TASK_SELECT)
     .eq("project_id", projectId)
     .order("sort_order", { ascending: true })
     .order("priority", { ascending: true });
@@ -126,22 +125,6 @@ export async function getTasksByProject(projectId: string): Promise<Task[]> {
     tagsByTask.set(row.task_id, list);
   }
 
-  const { data: links, error: linkError } = await supabase
-    .from("task_links")
-    .select("source_task_id, target_task_id")
-    .in("source_task_id", taskIds);
-
-  if (linkError) {
-    throw new Error(linkError.message);
-  }
-
-  const linksByTask = new Map<string, string[]>();
-  for (const row of (links ?? []) as LinkRow[]) {
-    const list = linksByTask.get(row.source_task_id) ?? [];
-    list.push(row.target_task_id);
-    linksByTask.set(row.source_task_id, list);
-  }
-
   const workLogsByTask = await getWorkLogsByTaskIds(taskIds);
 
   return taskRows.map((row) =>
@@ -149,7 +132,6 @@ export async function getTasksByProject(projectId: string): Promise<Task[]> {
       row,
       row.assignee_id ? profileMap.get(row.assignee_id) ?? null : null,
       tagsByTask.get(row.id) ?? [],
-      linksByTask.get(row.id) ?? [],
       workLogsByTask.get(row.id) ?? [],
     ),
   );
@@ -196,9 +178,7 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
       priority: input.priority ?? 100,
       sort_order: sortOrder,
     })
-    .select(
-      "id, project_id, title, assignee_id, status, start_date, end_date, priority, sort_order",
-    )
+    .select(TASK_SELECT)
     .single();
 
   if (error) {
@@ -258,9 +238,7 @@ export async function updateTask(
     .from("tasks")
     .update(payload)
     .eq("id", taskId)
-    .select(
-      "id, project_id, title, assignee_id, status, start_date, end_date, priority, sort_order",
-    )
+    .select(TASK_SELECT)
     .single();
 
   if (error) {
@@ -287,7 +265,7 @@ export async function deleteTask(taskId: string): Promise<void> {
   }
 }
 
-/** 드래그 삽입 위치에 맞춰 sort_order를 갱신한다. */
+/** Board 전용: sort_order만 갱신 (parent_id 불변) */
 export async function reorderTask(
   projectId: string,
   movedId: string,
@@ -352,14 +330,74 @@ export async function reorderTask(
   }
 }
 
+/** Hierarchy 전용: parent_id만 갱신 (sort_order 불변) */
+export async function setTaskParent(
+  projectId: string,
+  taskId: string,
+  parentId: string | null,
+): Promise<void> {
+  if (parentId === taskId) {
+    throw new Error("자기 자신을 상위 업무로 지정할 수 없습니다");
+  }
+
+  const supabase = await createClient();
+
+  const { data: rows, error } = await supabase
+    .from("tasks")
+    .select(TASK_SELECT)
+    .eq("project_id", projectId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const tasks = ((rows ?? []) as TaskRow[]).map((row) =>
+    toTask(row, null),
+  );
+  const task = tasks.find((t) => t.id === taskId);
+  if (!task) {
+    throw new Error("업무를 찾을 수 없습니다");
+  }
+
+  if (parentId !== null) {
+    const parent = tasks.find((t) => t.id === parentId);
+    if (!parent) {
+      throw new Error("상위 업무를 찾을 수 없습니다");
+    }
+    if (isDescendantOf(tasks, taskId, parentId)) {
+      throw new Error("하위 업무를 상위 업무로 지정할 수 없습니다");
+    }
+  }
+
+  if (task.parentId === parentId) {
+    return;
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("tasks")
+    .update({
+      parent_id: parentId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId)
+    .eq("project_id", projectId)
+    .select("id, parent_id")
+    .maybeSingle();
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+  if (!updated) {
+    throw new Error("상위 업무 변경이 반영되지 않았습니다");
+  }
+}
+
 export async function getTaskById(taskId: string): Promise<Task | null> {
   const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("tasks")
-    .select(
-      "id, project_id, title, assignee_id, status, start_date, end_date, priority, sort_order",
-    )
+    .select(TASK_SELECT)
     .eq("id", taskId)
     .maybeSingle();
 

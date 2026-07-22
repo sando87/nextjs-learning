@@ -1,6 +1,9 @@
 "use client";
 
-import { reorderTaskAction } from "@/app/schedule/actions";
+import {
+  reorderTaskAction,
+  setTaskParentAction,
+} from "@/app/schedule/actions";
 import ScheduleToolbar from "@/components/schedule/ScheduleToolbar";
 import TaskForm from "@/components/schedule/TaskForm";
 import TaskMetaCells from "@/components/schedule/TaskMetaCells";
@@ -31,6 +34,7 @@ import {
   saveBoardPreferences,
   WEEK_COLUMN_WIDTH_STEP,
   type BoardFilters,
+  type BoardLayout,
   type ColumnKey,
   type SortKey,
 } from "@/components/schedule/schedule-board-state";
@@ -39,6 +43,11 @@ import {
   buildDayColumnLayouts,
   type DaySessionExpand,
 } from "@/lib/schedule/day-workday-layout";
+import {
+  buildTaskTree,
+  filterTasksKeepingAncestors,
+  flattenVisible,
+} from "@/lib/schedule/task-tree";
 import type {
   Project,
   ProjectMember,
@@ -46,6 +55,7 @@ import type {
   Task,
   ViewMode,
 } from "@/lib/schedule/types";
+import { useHierarchyNestDrag } from "@/components/schedule/use-hierarchy-nest-drag";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -55,6 +65,7 @@ import {
   useRef,
   useState,
   useTransition,
+  type DragEvent,
 } from "react";
 
 type ScheduleBoardProps = {
@@ -69,6 +80,25 @@ const COLUMN_WIDTH = 72;
 /** undefined=닫힘, null=신규, string=수정 대상 id */
 type EditingTarget = string | null | undefined;
 
+function matchesFilters(task: Task, filters: BoardFilters) {
+  if (
+    filters.assigneeIds.length > 0 &&
+    (!task.assigneeId || !filters.assigneeIds.includes(task.assigneeId))
+  ) {
+    return false;
+  }
+  if (filters.statuses.length > 0 && !filters.statuses.includes(task.status)) {
+    return false;
+  }
+  if (
+    filters.tagIds.length > 0 &&
+    !task.tags.some((t) => filters.tagIds.includes(t.id))
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export default function ScheduleBoard({
   project,
   tasks,
@@ -80,6 +110,9 @@ export default function ScheduleBoard({
   const saved = loadBoardPreferences(project.id);
 
   const [viewMode, setViewMode] = useState<ViewMode>(saved.viewMode ?? "week");
+  const [boardLayout, setBoardLayout] = useState<BoardLayout>(
+    saved.boardLayout ?? "board",
+  );
   const [dayColumnWidth, setDayColumnWidth] = useState(
     saved.dayColumnWidth ?? DEFAULT_DAY_COLUMN_WIDTH,
   );
@@ -99,14 +132,24 @@ export default function ScheduleBoard({
   const [filters, setFilters] = useState<BoardFilters>(
     saved.filters ?? DEFAULT_FILTERS,
   );
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(
+    () => new Set(saved.collapsedIds ?? []),
+  );
   const [editingTarget, setEditingTarget] = useState<EditingTarget>(undefined);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
+  /** 낙관적 parent 반영 (refresh 전 UI) */
+  const [parentOverrides, setParentOverrides] = useState<
+    Record<string, string | null>
+  >({});
   /** 일 뷰: 헤더로 연 이른/야근 확장 (날짜 키) */
   const [daySessionExpands, setDaySessionExpands] = useState<
     Record<string, DaySessionExpand>
   >({});
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** Board reorder용 — React dragend/drop 순서 이슈 대비 */
+  const draggingIdRef = useRef<string | null>(null);
+  const dropHandledRef = useRef(false);
   const dayWidthRef = useRef(dayColumnWidth);
   dayWidthRef.current = dayColumnWidth;
   const weekWidthRef = useRef(weekColumnWidth);
@@ -116,44 +159,66 @@ export default function ScheduleBoard({
   /** 줌 후 커서 아래 지점을 유지하기 위한 scrollLeft */
   const pendingScrollLeftRef = useRef<number | null>(null);
 
+  const isHierarchy = boardLayout === "hierarchy";
+
+  const tasksWithParents = useMemo(() => {
+    if (Object.keys(parentOverrides).length === 0) return tasks;
+    return tasks.map((t) =>
+      Object.prototype.hasOwnProperty.call(parentOverrides, t.id)
+        ? { ...t, parentId: parentOverrides[t.id]! }
+        : t,
+    );
+  }, [tasks, parentOverrides]);
+
+  // props tasks가 갱신되면 낙관적 override 해제
+  useEffect(() => {
+    setParentOverrides({});
+  }, [tasks]);
+
   const editingTask: Task | null | undefined =
     editingTarget === undefined
       ? undefined
       : editingTarget === null
         ? null
-        : tasks.find((t) => t.id === editingTarget);
+        : tasksWithParents.find((t) => t.id === editingTarget);
 
   const persist = useCallback(
     (
       next: Partial<{
         viewMode: ViewMode;
+        boardLayout: BoardLayout;
         sortKey: SortKey;
         visibleColumns: Record<ColumnKey, boolean>;
         filters: BoardFilters;
         dayColumnWidth: number;
         weekColumnWidth: number;
         monthColumnWidth: number;
+        collapsedIds: string[];
       }>,
     ) => {
       saveBoardPreferences(project.id, {
         viewMode: next.viewMode ?? viewMode,
+        boardLayout: next.boardLayout ?? boardLayout,
         sortKey: next.sortKey ?? sortKey,
         visibleColumns: next.visibleColumns ?? visibleColumns,
         filters: next.filters ?? filters,
         dayColumnWidth: next.dayColumnWidth ?? dayColumnWidth,
         weekColumnWidth: next.weekColumnWidth ?? weekColumnWidth,
         monthColumnWidth: next.monthColumnWidth ?? monthColumnWidth,
+        collapsedIds: next.collapsedIds ?? [...collapsedIds],
       });
     },
     [
       project.id,
       viewMode,
+      boardLayout,
       sortKey,
       visibleColumns,
       filters,
       dayColumnWidth,
       weekColumnWidth,
       monthColumnWidth,
+      collapsedIds,
     ],
   );
 
@@ -202,14 +267,26 @@ export default function ScheduleBoard({
         : viewMode === "month"
           ? monthColumnWidth
           : COLUMN_WIDTH;
-  const canReorder = sortKey === "sortOrder";
+  const canReorder = !isHierarchy && sortKey === "sortOrder";
   const isZoomableView =
     viewMode === "day" || viewMode === "week" || viewMode === "month";
 
-  const visibleTasks = useMemo(
+  const boardVisibleTasks = useMemo(
     () => sortTasks(applyFilters(tasks, filters), sortKey),
     [tasks, filters, sortKey],
   );
+
+  const hierarchyRows = useMemo(() => {
+    const filtered = filterTasksKeepingAncestors(tasksWithParents, (t) =>
+      matchesFilters(t, filters),
+    );
+    const tree = buildTaskTree(filtered);
+    return flattenVisible(tree, collapsedIds);
+  }, [tasksWithParents, filters, collapsedIds]);
+
+  const visibleTasks = isHierarchy
+    ? hierarchyRows.map((r) => r.task)
+    : boardVisibleTasks;
 
   const metaHeaders: { key: ColumnKey | "title"; label: string }[] = [
     { key: "title", label: "WorkUnit" },
@@ -218,16 +295,45 @@ export default function ScheduleBoard({
       .map((k) => ({ key: k, label: COLUMN_LABELS[k] })),
   ];
 
-  const handleDropAt = (insertIndex: number) => {
-    if (!draggingId || !canReorder) return;
-    const movedId = draggingId;
-    const from = visibleTasks.findIndex((t) => t.id === movedId);
+  const clearBoardDragState = () => {
+    draggingIdRef.current = null;
     setDraggingId(null);
     setDropInsertIndex(null);
+  };
+
+  const beginBoardDrag = (taskId: string) => {
+    dropHandledRef.current = false;
+    draggingIdRef.current = taskId;
+    setDraggingId(taskId);
+  };
+
+  /** dragend가 drop보다 먼저 와도 drop이 id를 읽을 수 있게 다음 틱에 정리 */
+  const endBoardDrag = () => {
+    window.setTimeout(() => {
+      if (dropHandledRef.current) {
+        dropHandledRef.current = false;
+        return;
+      }
+      clearBoardDragState();
+    }, 0);
+  };
+
+  const resolveMovedId = (e: DragEvent) => {
+    const fromData = e.dataTransfer.getData("text/plain");
+    return fromData || draggingIdRef.current;
+  };
+
+  const handleBoardDropAt = (e: DragEvent, insertIndex: number) => {
+    if (!canReorder) return;
+    const movedId = resolveMovedId(e);
+    if (!movedId) return;
+    dropHandledRef.current = true;
+    const from = boardVisibleTasks.findIndex((t) => t.id === movedId);
+    clearBoardDragState();
     if (from < 0 || insertIndex === from) return;
 
     const { beforeId, afterId } = neighborsAtInsert(
-      visibleTasks,
+      boardVisibleTasks,
       movedId,
       insertIndex,
     );
@@ -241,6 +347,51 @@ export default function ScheduleBoard({
       });
       router.refresh();
     });
+  };
+
+  const applyNest = useCallback(
+    (taskId: string, parentId: string | null) => {
+      setParentOverrides((prev) => ({ ...prev, [taskId]: parentId }));
+      startTransition(async () => {
+        try {
+          await setTaskParentAction({
+            projectId: project.id,
+            taskId,
+            parentId,
+          });
+          router.refresh();
+        } catch (err) {
+          setParentOverrides((prev) => {
+            const next = { ...prev };
+            delete next[taskId];
+            return next;
+          });
+          const message =
+            err instanceof Error ? err.message : "상위 업무 변경에 실패했습니다";
+          window.alert(message);
+        }
+      });
+    },
+    [project.id, router],
+  );
+
+  const {
+    draggingId: nestDraggingId,
+    dropTarget: nestDropTarget,
+    onTitlePointerDown,
+  } = useHierarchyNestDrag({
+    enabled: isHierarchy,
+    tasks: tasksWithParents,
+    chartRef: scrollRef,
+    onNest: applyNest,
+  });
+
+  const toggleCollapse = (taskId: string) => {
+    const next = new Set(collapsedIds);
+    if (next.has(taskId)) next.delete(taskId);
+    else next.add(taskId);
+    setCollapsedIds(next);
+    persist({ collapsedIds: [...next] });
   };
 
   // 패시브 기본 리스너에서는 preventDefault가 무시되므로 직접 등록
@@ -274,7 +425,6 @@ export default function ScheduleBoard({
             : clampMonthColumnWidth(prevWidth + delta);
       if (nextWidth === prevWidth) return;
 
-      // 커서 아래 타임라인 지점이 줌 후에도 같은 화면에 남도록 scrollLeft 계산
       const rect = el.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const contentX = el.scrollLeft + mouseX;
@@ -310,7 +460,6 @@ export default function ScheduleBoard({
     return () => el.removeEventListener("wheel", onWheel);
   }, [viewMode, isZoomableView, persist]);
 
-  // DOM 너비 반영 직후 커서 중심 스크롤 적용
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const nextScroll = pendingScrollLeftRef.current;
@@ -338,6 +487,7 @@ export default function ScheduleBoard({
     <div className="flex flex-col gap-4">
       <ScheduleToolbar
         viewMode={viewMode}
+        boardLayout={boardLayout}
         sortKey={sortKey}
         visibleColumns={visibleColumns}
         filters={filters}
@@ -346,6 +496,11 @@ export default function ScheduleBoard({
         onViewModeChange={(mode) => {
           setViewMode(mode);
           persist({ viewMode: mode });
+        }}
+        onBoardLayoutChange={(layout) => {
+          setBoardLayout(layout);
+          clearBoardDragState();
+          persist({ boardLayout: layout });
         }}
         onSortChange={(key) => {
           setSortKey(key);
@@ -365,6 +520,7 @@ export default function ScheduleBoard({
 
       <div
         ref={scrollRef}
+        data-schedule-chart
         className="overflow-x-auto rounded border border-zinc-300 dark:border-zinc-700"
       >
         <table className="w-max min-w-full border-collapse text-sm">
@@ -412,86 +568,133 @@ export default function ScheduleBoard({
                 </td>
               </tr>
             ) : (
-              visibleTasks.map((task, index) => (
-                <tr
-                  key={task.id}
-                  onDragOver={
-                    canReorder && draggingId
-                      ? (e) => {
-                          e.preventDefault();
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const placeBefore =
-                            e.clientY < rect.top + rect.height / 2;
-                          setDropInsertIndex(
-                            toInsertIndex(
-                              visibleTasks,
+              visibleTasks.map((task, index) => {
+                const rowMeta = isHierarchy
+                  ? hierarchyRows[index]
+                  : undefined;
+                const depth = rowMeta?.depth ?? 0;
+                const hasChildren = rowMeta?.hasChildren ?? false;
+                const nestHighlight =
+                  nestDropTarget?.kind === "task" &&
+                  nestDropTarget.taskId === task.id;
+
+                return (
+                  <tr
+                    key={task.id}
+                    data-task-id={task.id}
+                    onDragOver={
+                      canReorder
+                        ? (e) => {
+                            if (!draggingIdRef.current) return;
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "move";
+                            const rect =
+                              e.currentTarget.getBoundingClientRect();
+                            const placeBefore =
+                              e.clientY < rect.top + rect.height / 2;
+                            setDropInsertIndex(
+                              toInsertIndex(
+                                boardVisibleTasks,
+                                draggingIdRef.current,
+                                index,
+                                placeBefore,
+                              ),
+                            );
+                          }
+                        : undefined
+                    }
+                    onDrop={
+                      canReorder
+                        ? (e) => {
+                            e.preventDefault();
+                            const rect =
+                              e.currentTarget.getBoundingClientRect();
+                            const placeBefore =
+                              e.clientY < rect.top + rect.height / 2;
+                            const movedId = resolveMovedId(e);
+                            handleBoardDropAt(
+                              e,
+                              toInsertIndex(
+                                boardVisibleTasks,
+                                movedId,
+                                index,
+                                placeBefore,
+                              ),
+                            );
+                          }
+                        : undefined
+                    }
+                    className={
+                      nestDraggingId === task.id || draggingId === task.id
+                        ? "opacity-50"
+                        : undefined
+                    }
+                  >
+                    <TaskMetaCells
+                      task={task}
+                      projectId={project.id}
+                      members={members}
+                      visibleColumns={visibleColumns}
+                      onEdit={(t) => setEditingTarget(t.id)}
+                      dragMode={
+                        isHierarchy
+                          ? "nest"
+                          : canReorder
+                            ? "reorder"
+                            : "none"
+                      }
+                      dragTitle={
+                        isHierarchy
+                          ? "제목을 드래그하여 상위 업무에 할당"
+                          : "드래그하여 순서 변경"
+                      }
+                      depth={isHierarchy ? depth : 0}
+                      hasChildren={isHierarchy ? hasChildren : false}
+                      collapsed={collapsedIds.has(task.id)}
+                      onToggleCollapse={
+                        isHierarchy && hasChildren
+                          ? () => toggleCollapse(task.id)
+                          : undefined
+                      }
+                      showDropIndicatorAbove={
+                        canReorder
+                          ? showIndicatorAbove(
+                              boardVisibleTasks,
                               draggingId,
+                              dropInsertIndex,
                               index,
-                              placeBefore,
-                            ),
-                          );
-                        }
-                      : undefined
-                  }
-                  onDrop={
-                    canReorder && draggingId
-                      ? (e) => {
-                          e.preventDefault();
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const placeBefore =
-                            e.clientY < rect.top + rect.height / 2;
-                          handleDropAt(
-                            toInsertIndex(
-                              visibleTasks,
+                            )
+                          : false
+                      }
+                      showDropIndicatorBelow={
+                        canReorder
+                          ? showIndicatorBelow(
+                              boardVisibleTasks,
                               draggingId,
+                              dropInsertIndex,
                               index,
-                              placeBefore,
-                            ),
-                          );
-                        }
-                      : undefined
-                  }
-                  className={
-                    draggingId === task.id ? "opacity-50" : undefined
-                  }
-                >
-                  <TaskMetaCells
-                    task={task}
-                    projectId={project.id}
-                    members={members}
-                    visibleColumns={visibleColumns}
-                    allTasks={tasks}
-                    onEdit={(t) => setEditingTarget(t.id)}
-                    reorderEnabled={canReorder}
-                    showDropIndicatorAbove={showIndicatorAbove(
-                      visibleTasks,
-                      draggingId,
-                      dropInsertIndex,
-                      index,
-                    )}
-                    showDropIndicatorBelow={showIndicatorBelow(
-                      visibleTasks,
-                      draggingId,
-                      dropInsertIndex,
-                      index,
-                    )}
-                    onDragHandleStart={() => setDraggingId(task.id)}
-                    onDragHandleEnd={() => {
-                      setDraggingId(null);
-                      setDropInsertIndex(null);
-                    }}
-                  />
-                  <TimelineCells
-                    projectId={project.id}
-                    task={task}
-                    columns={columns}
-                    columnWidth={columnWidth}
-                    viewMode={viewMode}
-                    dayLayouts={dayLayouts}
-                    sessionExpands={daySessionExpands}
-                  />
-                </tr>
-              ))
+                            )
+                          : false
+                      }
+                      nestHighlight={nestHighlight}
+                      onDragHandleStart={() => beginBoardDrag(task.id)}
+                      onDragHandleEnd={endBoardDrag}
+                      onNestPointerDown={(e) =>
+                        onTitlePointerDown(task.id, e)
+                      }
+                    />
+                    <TimelineCells
+                      projectId={project.id}
+                      task={task}
+                      columns={columns}
+                      columnWidth={columnWidth}
+                      viewMode={viewMode}
+                      dayLayouts={dayLayouts}
+                      sessionExpands={daySessionExpands}
+                    />
+                  </tr>
+                );
+              })
             )}
             <tr>
               <td
@@ -516,7 +719,6 @@ export default function ScheduleBoard({
           projectId={project.id}
           members={members}
           tags={tags}
-          allTasks={tasks}
           task={editingTask}
           onClose={() => setEditingTarget(undefined)}
         />

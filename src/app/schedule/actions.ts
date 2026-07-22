@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { addProjectMember, removeProjectMember } from "@/lib/schedule/members-store";
-import { addTaskLink, removeTaskLink } from "@/lib/schedule/links-store";
 import {
   requireProjectMember,
   requireProjectOwner,
@@ -20,6 +19,7 @@ import {
   createTask,
   deleteTask,
   reorderTask,
+  setTaskParent,
   updateTask,
 } from "@/lib/schedule/tasks-store";
 import { toHourTimestamp } from "@/lib/schedule/work-log-utils";
@@ -336,6 +336,26 @@ export async function reorderTaskAction(input: {
   revalidateSchedule(projectId);
 }
 
+/** Hierarchy 전용: parent_id만 변경 */
+export async function setTaskParentAction(input: {
+  projectId: string;
+  taskId: string;
+  parentId: string | null;
+}) {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const { projectId, taskId, parentId } = input;
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) {
+    throw new Error("프로젝트 멤버만 업무 상위 관계를 변경할 수 있습니다");
+  }
+
+  await setTaskParent(projectId, taskId, parentId);
+  revalidateSchedule(projectId);
+}
+
 export async function createTagAction(formData: FormData) {
   const user = await requireUser();
   if (!user) redirect("/login");
@@ -390,52 +410,6 @@ export async function setTaskTagsAction(formData: FormData) {
     taskId,
     tagIds.filter((id): id is string => typeof id === "string"),
   );
-  revalidateSchedule(projectId);
-}
-
-export async function addTaskLinkAction(formData: FormData) {
-  const user = await requireUser();
-  if (!user) redirect("/login");
-
-  const projectId = formData.get("projectId");
-  const sourceTaskId = formData.get("sourceTaskId");
-  const targetTaskId = formData.get("targetTaskId");
-
-  if (
-    typeof projectId !== "string" ||
-    typeof sourceTaskId !== "string" ||
-    typeof targetTaskId !== "string"
-  ) {
-    return;
-  }
-
-  const isMember = await requireProjectMember(projectId, user.id);
-  if (!isMember) throw new Error("프로젝트 멤버만 업무를 연결할 수 있습니다");
-
-  await addTaskLink(sourceTaskId, targetTaskId);
-  revalidateSchedule(projectId);
-}
-
-export async function removeTaskLinkAction(formData: FormData) {
-  const user = await requireUser();
-  if (!user) redirect("/login");
-
-  const projectId = formData.get("projectId");
-  const sourceTaskId = formData.get("sourceTaskId");
-  const targetTaskId = formData.get("targetTaskId");
-
-  if (
-    typeof projectId !== "string" ||
-    typeof sourceTaskId !== "string" ||
-    typeof targetTaskId !== "string"
-  ) {
-    return;
-  }
-
-  const isMember = await requireProjectMember(projectId, user.id);
-  if (!isMember) throw new Error("프로젝트 멤버만 업무 연결을 해제할 수 있습니다");
-
-  await removeTaskLink(sourceTaskId, targetTaskId);
   revalidateSchedule(projectId);
 }
 

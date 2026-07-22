@@ -9,19 +9,27 @@ import {
   type ProjectMember,
   type Task,
 } from "@/lib/schedule/types";
+import { type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 type TaskMetaCellsProps = {
   task: Task;
   projectId: string;
   members: ProjectMember[];
   visibleColumns: Record<ColumnKey, boolean>;
-  allTasks: Task[];
   onEdit: (task: Task) => void;
-  reorderEnabled?: boolean;
+  /** board reorder: HTML5 DnD / hierarchy nest: 제목 pointer 드래그 */
+  dragMode?: "none" | "reorder" | "nest";
+  dragTitle?: string;
+  depth?: number;
+  hasChildren?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
   showDropIndicatorAbove?: boolean;
   showDropIndicatorBelow?: boolean;
+  nestHighlight?: boolean;
   onDragHandleStart?: () => void;
   onDragHandleEnd?: () => void;
+  onNestPointerDown?: (e: ReactPointerEvent) => void;
 };
 
 const cellClass =
@@ -32,18 +40,20 @@ export default function TaskMetaCells({
   projectId,
   members,
   visibleColumns,
-  allTasks,
   onEdit,
-  reorderEnabled = false,
+  dragMode = "none",
+  dragTitle = "드래그하여 순서 변경",
+  depth = 0,
+  hasChildren = false,
+  collapsed = false,
+  onToggleCollapse,
   showDropIndicatorAbove = false,
   showDropIndicatorBelow = false,
+  nestHighlight = false,
   onDragHandleStart,
   onDragHandleEnd,
+  onNestPointerDown,
 }: TaskMetaCellsProps) {
-  const linkedTitles = task.linkedTaskIds
-    .map((id) => allTasks.find((t) => t.id === id)?.title)
-    .filter(Boolean);
-
   const dropLine =
     showDropIndicatorAbove && showDropIndicatorBelow
       ? "shadow-[inset_0_2px_0_0_#0ea5e9,inset_0_-2px_0_0_#0ea5e9]"
@@ -53,30 +63,69 @@ export default function TaskMetaCells({
           ? "shadow-[inset_0_-2px_0_0_#0ea5e9]"
           : "";
 
+  const nestClass = nestHighlight
+    ? "bg-sky-100 ring-2 ring-inset ring-sky-400 dark:bg-sky-950/50 dark:ring-sky-500"
+    : "bg-white dark:bg-black";
+
+  const isNest = dragMode === "nest";
+
   return (
     <>
       <td
-        className={`${cellClass} sticky left-0 z-10 min-w-[140px] bg-white dark:bg-black ${dropLine}`}
+        className={`${cellClass} sticky left-0 z-10 min-w-[160px] ${nestClass} ${dropLine}`}
       >
-        <div className="flex items-center gap-1">
-          {reorderEnabled ? (
+        <div
+          className="flex items-center gap-1"
+          style={{ paddingLeft: depth > 0 ? depth * 12 : undefined }}
+        >
+          {isNest ? (
+            <button
+              type="button"
+              disabled={!hasChildren}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (hasChildren) onToggleCollapse?.();
+              }}
+              className={`flex h-5 w-2 shrink-0 items-center justify-center text-lg leading-none ${hasChildren
+                ? "text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                : "cursor-default text-zinc-300 dark:text-zinc-600"
+                }`}
+              aria-label={
+                hasChildren ? (collapsed ? "펼치기" : "접기") : undefined
+              }
+              title={hasChildren ? (collapsed ? "펼치기" : "접기") : undefined}
+            >
+              {hasChildren ? (collapsed ? "▸" : "▾") : "▸"}
+            </button>
+          ) : null}
+
+          {dragMode === "reorder" ? (
             <span
               draggable
-              onDragStart={(e) => {
+              onDragStart={(e: DragEvent) => {
+                e.stopPropagation();
                 e.dataTransfer.effectAllowed = "move";
                 e.dataTransfer.setData("text/plain", task.id);
                 onDragHandleStart?.();
               }}
-              onDragEnd={() => onDragHandleEnd?.()}
+              onDragEnd={(e: DragEvent) => {
+                e.stopPropagation();
+                onDragHandleEnd?.();
+              }}
               className="cursor-grab select-none px-0.5 text-zinc-400 hover:text-zinc-600 active:cursor-grabbing dark:hover:text-zinc-300"
-              title="드래그하여 순서 변경"
-              aria-label="드래그하여 순서 변경"
+              title={dragTitle}
+              aria-label={dragTitle}
             >
               ⋮⋮
             </span>
           ) : null}
+
           <button
             type="button"
+            title={isNest ? dragTitle : undefined}
+            onPointerDown={
+              isNest ? (e) => onNestPointerDown?.(e) : undefined
+            }
             onClick={() => onEdit(task)}
             onDoubleClick={() => {
               const next = prompt("업무 이름", task.title);
@@ -88,7 +137,10 @@ export default function TaskMetaCells({
               fd.set("value", next);
               void quickUpdateTaskAction(fd);
             }}
-            className="min-w-0 flex-1 text-left font-medium hover:underline"
+            className={`min-w-0 flex-1 text-left font-medium hover:underline ${isNest
+              ? "cursor-grab touch-none select-none active:cursor-grabbing"
+              : ""
+              }`}
           >
             {task.title}
           </button>
@@ -161,12 +213,6 @@ export default function TaskMetaCells({
               </span>
             ))}
           </div>
-        </td>
-      ) : null}
-
-      {visibleColumns.links ? (
-        <td className={`${cellClass} min-w-[120px] text-zinc-500`}>
-          {linkedTitles.length > 0 ? linkedTitles.join(", ") : "-"}
         </td>
       ) : null}
 

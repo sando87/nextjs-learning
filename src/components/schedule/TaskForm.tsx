@@ -1,10 +1,8 @@
 "use client";
 
 import {
-  addTaskLinkAction,
   createTaskAction,
   deleteTaskAction,
-  removeTaskLinkAction,
   setTaskTagsAction,
   updateTaskAction,
 } from "@/app/schedule/actions";
@@ -23,7 +21,6 @@ type TaskFormProps = {
   projectId: string;
   members: ProjectMember[];
   tags: Tag[];
-  allTasks: Task[];
   task: Task | null;
   onClose: () => void;
 };
@@ -32,7 +29,6 @@ export default function TaskForm({
   projectId,
   members,
   tags,
-  allTasks,
   task,
   onClose,
 }: TaskFormProps) {
@@ -40,9 +36,6 @@ export default function TaskForm({
   const isEdit = task !== null;
   const [selectedTags, setSelectedTags] = useState<string[]>(
     task?.tags.map((t) => t.id) ?? [],
-  );
-  const [linkedIds, setLinkedIds] = useState<string[]>(
-    task?.linkedTaskIds ?? [],
   );
   const [pending, setPending] = useState(false);
 
@@ -62,26 +55,6 @@ export default function TaskForm({
         tagFd.set("taskId", task.id);
         selectedTags.forEach((id) => tagFd.append("tagIds", id));
         await setTaskTagsAction(tagFd);
-
-        const prevLinks = task.linkedTaskIds;
-        for (const id of linkedIds) {
-          if (!prevLinks.includes(id)) {
-            const linkFd = new FormData();
-            linkFd.set("projectId", projectId);
-            linkFd.set("sourceTaskId", task.id);
-            linkFd.set("targetTaskId", id);
-            await addTaskLinkAction(linkFd);
-          }
-        }
-        for (const id of prevLinks) {
-          if (!linkedIds.includes(id)) {
-            const linkFd = new FormData();
-            linkFd.set("projectId", projectId);
-            linkFd.set("sourceTaskId", task.id);
-            linkFd.set("targetTaskId", id);
-            await removeTaskLinkAction(linkFd);
-          }
-        }
       } else {
         await createTaskAction(fd);
       }
@@ -209,35 +182,6 @@ export default function TaskForm({
                     {tag.name}
                   </label>
                 ))}
-              </div>
-            </fieldset>
-          ) : null}
-
-          {isEdit && allTasks.length > 1 ? (
-            <fieldset className="text-sm">
-              <legend className="mb-1">관련 업무</legend>
-              <div className="max-h-32 overflow-y-auto">
-                {allTasks
-                  .filter((t) => t.id !== task.id)
-                  .map((t) => (
-                    <label
-                      key={t.id}
-                      className="flex items-center gap-2 py-0.5 text-xs"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={linkedIds.includes(t.id)}
-                        onChange={() =>
-                          setLinkedIds((prev) =>
-                            prev.includes(t.id)
-                              ? prev.filter((id) => id !== t.id)
-                              : [...prev, t.id],
-                          )
-                        }
-                      />
-                      {t.title}
-                    </label>
-                  ))}
               </div>
             </fieldset>
           ) : null}

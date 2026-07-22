@@ -63,8 +63,9 @@ export type Task = {
   endDate: string | null;
   priority: number;
   sortOrder: number;
+  parentId: string | null;
+  createdAt: string;
   tags: Tag[];
-  linkedTaskIds: string[];
   workLogs: WorkLog[];
 };
 
