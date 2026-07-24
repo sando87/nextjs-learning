@@ -7,9 +7,11 @@ import {
 } from "@/app/schedule/actions";
 import type { DayColumnLayout } from "@/lib/schedule/day-workday-layout";
 import {
+  computeVisibleMoveRange,
   getSlotCount,
   shouldDeleteWorkLog,
   slotsToTimestamps,
+  splitSlotsByDayWorkHours,
   workLogToSlotRange,
   xToSlotIndex,
 } from "@/lib/schedule/work-log-timeline-utils";
@@ -49,7 +51,6 @@ type PendingBar = {
 };
 
 const DRAG_THRESHOLD_PX = 5;
-const SLOTS_PER_DAY = 24;
 
 type UseWorkLogDragOptions = {
   projectId: string;
@@ -62,38 +63,26 @@ type UseWorkLogDragOptions = {
   onBarClick?: (workLogId: string, anchor: { x: number; y: number }) => void;
 };
 
-/** 슬롯이 속한 날짜의 half-open 범위 [dayMin, dayMaxExclusive) */
-function daySlotBounds(slot: number): {
-  dayMin: number;
-  dayMaxExclusive: number;
-} {
-  const dayMin = Math.floor(slot / SLOTS_PER_DAY) * SLOTS_PER_DAY;
-  return { dayMin, dayMaxExclusive: dayMin + SLOTS_PER_DAY };
-}
-
+/** 날짜 경계 클램프 없이 미리보기 범위 계산 (저장 시 근무시 단위로 분할) */
 function computePreview(
   state: DragState,
   slotCount: number,
+  dayLayouts?: DayColumnLayout[],
 ): WorkLogPreview {
   const { mode, anchorSlot, currentSlot, origStart, origEndExclusive } = state;
 
   if (mode === "create") {
-    // 생성도 시작 슬롯의 날짜 밖으로 나가지 않음
-    const { dayMin, dayMaxExclusive } = daySlotBounds(anchorSlot);
-    const start = Math.max(dayMin, Math.min(anchorSlot, currentSlot));
+    const start = Math.max(0, Math.min(anchorSlot, currentSlot));
     const end = Math.min(
-      dayMaxExclusive,
+      slotCount,
       Math.max(anchorSlot, currentSlot) + 1,
     );
     return { startSlot: start, endExclusiveSlot: end, isNew: true };
   }
 
-  // 리사이즈·이동은 원래 시작 시각이 속한 날짜 안에만 유지
-  const { dayMin, dayMaxExclusive } = daySlotBounds(origStart);
-
   if (mode === "resize-start") {
-    const endCap = Math.min(origEndExclusive, dayMaxExclusive);
-    const start = Math.max(dayMin, Math.min(currentSlot, endCap));
+    const endCap = Math.min(origEndExclusive, slotCount);
+    const start = Math.max(0, Math.min(currentSlot, endCap));
     return {
       startSlot: start,
       endExclusiveSlot: endCap,
@@ -102,10 +91,10 @@ function computePreview(
   }
 
   if (mode === "resize-end") {
-    const startCap = Math.max(origStart, dayMin);
+    const startCap = Math.max(0, origStart);
     const endEx = Math.max(
       startCap,
-      Math.min(dayMaxExclusive, currentSlot + 1),
+      Math.min(slotCount, currentSlot + 1),
     );
     return {
       startSlot: startCap,
@@ -114,11 +103,24 @@ function computePreview(
     };
   }
 
-  const span = Math.min(origEndExclusive - origStart, SLOTS_PER_DAY);
+  // move: 표시 근무시만 이어 붙여 길이를 유지 (야간 공백은 건너뜀)
+  if (dayLayouts && dayLayouts.length > 0) {
+    const moved = computeVisibleMoveRange(
+      origStart,
+      origEndExclusive,
+      anchorSlot,
+      currentSlot,
+      dayLayouts,
+    );
+    if (moved) {
+      return { ...moved, isNew: false };
+    }
+  }
+
+  const span = Math.max(1, origEndExclusive - origStart);
   const delta = currentSlot - anchorSlot;
   let start = origStart + delta;
-  const maxStart = Math.min(slotCount - span, dayMaxExclusive - span);
-  start = Math.max(dayMin, Math.min(maxStart, start));
+  start = Math.max(0, Math.min(Math.max(0, slotCount - span), start));
   return {
     startSlot: start,
     endExclusiveSlot: start + span,
@@ -131,6 +133,19 @@ function splitTimestamp(ts: string): {
   hour: number;
 } {
   return { date: ts.slice(0, 10), hour: Number(ts.slice(11, 13)) };
+}
+
+function appendWorkLogFormFields(
+  fd: FormData,
+  startedAt: string,
+  endedAt: string,
+) {
+  const start = splitTimestamp(startedAt);
+  const end = splitTimestamp(endedAt);
+  fd.set("startDate", start.date);
+  fd.set("endDate", end.date);
+  fd.set("startHour", String(start.hour));
+  fd.set("endHour", String(end.hour));
 }
 
 export function useWorkLogDrag({
@@ -193,16 +208,39 @@ export function useWorkLogDrag({
 
   const persist = useCallback(
     async (state: DragState, range: WorkLogPreview) => {
-      const { startedAt, endedAt } = slotsToTimestamps(
-        columns,
+      // 날짜를 넘기면 헤더 근무시 단위로 잘라 여러 로그로 저장
+      const segments = splitSlotsByDayWorkHours(
         range.startSlot,
         range.endExclusiveSlot,
-        viewMode,
+        dayLayouts,
+        columns.length,
       );
 
       setPending(true);
       try {
-        if (shouldDeleteWorkLog(startedAt, endedAt)) {
+        if (segments.length === 0) {
+          if (state.mode !== "create" && state.workLogId) {
+            const fd = new FormData();
+            fd.set("projectId", projectId);
+            fd.set("workLogId", state.workLogId);
+            await deleteWorkLogAction(fd);
+          }
+          return;
+        }
+
+        const timestamped = segments.map((seg) =>
+          slotsToTimestamps(
+            columns,
+            seg.startSlot,
+            seg.endExclusiveSlot,
+            viewMode,
+          ),
+        );
+
+        const valid = timestamped.filter(
+          (t) => !shouldDeleteWorkLog(t.startedAt, t.endedAt),
+        );
+        if (valid.length === 0) {
           if (state.mode !== "create" && state.workLogId) {
             const fd = new FormData();
             fd.set("projectId", projectId);
@@ -213,40 +251,48 @@ export function useWorkLogDrag({
         }
 
         if (state.mode === "create") {
-          const start = splitTimestamp(startedAt);
-          const end = splitTimestamp(endedAt);
-          const fd = new FormData();
-          fd.set("projectId", projectId);
-          fd.set("taskId", taskId);
-          fd.set("startDate", start.date);
-          fd.set("endDate", end.date);
-          fd.set("startHour", String(start.hour));
-          fd.set("endHour", String(end.hour));
-          const result = await createWorkLogAction(fd);
-          if (!result.ok) console.error(result.error);
+          for (const { startedAt, endedAt } of valid) {
+            const fd = new FormData();
+            fd.set("projectId", projectId);
+            fd.set("taskId", taskId);
+            appendWorkLogFormFields(fd, startedAt, endedAt);
+            const result = await createWorkLogAction(fd);
+            if (!result.ok) console.error(result.error);
+          }
           return;
         }
 
         if (!state.workLogId) return;
         const log = workLogs.find((l) => l.id === state.workLogId);
-        const start = splitTimestamp(startedAt);
-        const end = splitTimestamp(endedAt);
-        const fd = new FormData();
-        fd.set("projectId", projectId);
-        fd.set("workLogId", state.workLogId);
-        fd.set("startDate", start.date);
-        fd.set("endDate", end.date);
-        fd.set("startHour", String(start.hour));
-        fd.set("endHour", String(end.hour));
-        fd.set("note", log?.note ?? "");
-        const result = await updateWorkLogAction(fd);
-        if (!result.ok) console.error(result.error);
+        const note = log?.note ?? "";
+
+        const [first, ...rest] = valid;
+        const updateFd = new FormData();
+        updateFd.set("projectId", projectId);
+        updateFd.set("workLogId", state.workLogId);
+        appendWorkLogFormFields(updateFd, first.startedAt, first.endedAt);
+        updateFd.set("note", note);
+        const updateResult = await updateWorkLogAction(updateFd);
+        if (!updateResult.ok) {
+          console.error(updateResult.error);
+          return;
+        }
+
+        for (const { startedAt, endedAt } of rest) {
+          const fd = new FormData();
+          fd.set("projectId", projectId);
+          fd.set("taskId", taskId);
+          appendWorkLogFormFields(fd, startedAt, endedAt);
+          fd.set("note", note);
+          const result = await createWorkLogAction(fd);
+          if (!result.ok) console.error(result.error);
+        }
       } finally {
         setPending(false);
         router.refresh();
       }
     },
-    [columns, projectId, taskId, router, viewMode, workLogs],
+    [columns, dayLayouts, projectId, taskId, router, viewMode, workLogs],
   );
 
   const endDrag = useCallback(() => {
@@ -255,9 +301,9 @@ export function useWorkLogDrag({
     setPreview(null);
     setDraggingWorkLogId(null);
     if (!state) return;
-    const range = computePreview(state, slotCount);
+    const range = computePreview(state, slotCount, dayLayouts);
     void persist(state, range);
-  }, [persist, slotCount]);
+  }, [dayLayouts, persist, slotCount]);
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -276,7 +322,7 @@ export function useWorkLogDrag({
       const state = dragRef.current;
       if (!state) return;
       state.currentSlot = slotAt(e.clientX);
-      setPreview(computePreview(state, slotCount));
+      setPreview(computePreview(state, slotCount, dayLayouts));
     };
 
     const onUp = () => {
@@ -298,7 +344,7 @@ export function useWorkLogDrag({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [activateBarDrag, endDrag, slotAt, slotCount]);
+  }, [activateBarDrag, dayLayouts, endDrag, slotAt, slotCount]);
 
   const startCreate = useCallback(
     (clientX: number) => {

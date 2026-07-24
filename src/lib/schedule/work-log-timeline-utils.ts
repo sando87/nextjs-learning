@@ -116,13 +116,115 @@ export function slotsToTimestamps(
   const endHour = endExclusiveSlot % 24;
 
   const startDate = columns[startCol]?.startDate ?? columns[0].startDate;
-  const endDate =
-    columns[endCol]?.startDate ?? columns[columns.length - 1].startDate;
+
+  // 마지막 날 24시(=다음 날 00:00)는 columns 범위를 한 칸 넘김
+  let endedAt: string;
+  if (endCol >= columns.length) {
+    const last = columns[columns.length - 1];
+    endedAt = toHourTimestamp(addDaysStr(last.startDate, 1), 0);
+  } else {
+    endedAt = toHourTimestamp(columns[endCol].startDate, endHour);
+  }
 
   return {
     startedAt: toHourTimestamp(startDate, startHour),
-    endedAt: toHourTimestamp(endDate, endHour),
+    endedAt,
   };
+}
+
+export type WorkLogSlotRange = {
+  startSlot: number;
+  endExclusiveSlot: number;
+};
+
+/** 헤더에 보이는 날짜별 근무시만 순서대로 (이동 시 야간 공백 건너뛰기용) */
+export function buildVisibleHourSlots(
+  dayLayouts: DayColumnLayout[],
+): number[] {
+  const slots: number[] = [];
+  dayLayouts.forEach((layout, dayIndex) => {
+    for (let h = layout.startHour; h < layout.endHour; h++) {
+      slots.push(dayIndex * 24 + h);
+    }
+  });
+  return slots;
+}
+
+function closestVisibleIndex(absSlot: number, visible: number[]): number {
+  if (visible.length === 0) return 0;
+  let best = 0;
+  for (let i = 0; i < visible.length; i++) {
+    if (visible[i] <= absSlot) best = i;
+    else break;
+  }
+  return best;
+}
+
+/**
+ * 연속 슬롯 범위를 날짜 컬럼의 표시 근무시로 잘라 날짜당 1구간씩 반환.
+ * 예: 9–18 컬럼에서 전날 16시~다음날 11시 → [16–18), [9–11)
+ */
+export function splitSlotsByDayWorkHours(
+  startSlot: number,
+  endExclusiveSlot: number,
+  dayLayouts: DayColumnLayout[] | undefined,
+  columnCount: number,
+): WorkLogSlotRange[] {
+  if (endExclusiveSlot <= startSlot || columnCount <= 0) return [];
+
+  const startDay = Math.floor(startSlot / 24);
+  const endDay = Math.floor((endExclusiveSlot - 1) / 24);
+  const segments: WorkLogSlotRange[] = [];
+
+  for (let day = startDay; day <= endDay; day++) {
+    if (day < 0 || day >= columnCount) continue;
+
+    const layout = dayLayouts?.[day];
+    const dayStartHour = layout?.startHour ?? 0;
+    const dayEndHour = layout?.endHour ?? 24;
+    const dayMin = day * 24 + dayStartHour;
+    const dayMaxExclusive = day * 24 + dayEndHour;
+
+    const segStart = Math.max(startSlot, dayMin);
+    const segEnd = Math.min(endExclusiveSlot, dayMaxExclusive);
+    if (segEnd > segStart) {
+      segments.push({ startSlot: segStart, endExclusiveSlot: segEnd });
+    }
+  }
+
+  return segments;
+}
+
+/** 표시 근무시 기준으로 막대 길이를 유지하며 이동 미리보기 계산 */
+export function computeVisibleMoveRange(
+  origStart: number,
+  origEndExclusive: number,
+  anchorSlot: number,
+  currentSlot: number,
+  dayLayouts: DayColumnLayout[],
+): WorkLogSlotRange | null {
+  const visible = buildVisibleHourSlots(dayLayouts);
+  if (visible.length === 0) return null;
+
+  const origVisible = visible.filter(
+    (s) => s >= origStart && s < origEndExclusive,
+  );
+  const visSpan = Math.max(1, origVisible.length);
+  const origStartVis =
+    origVisible.length > 0
+      ? visible.indexOf(origVisible[0])
+      : closestVisibleIndex(origStart, visible);
+
+  const delta =
+    closestVisibleIndex(currentSlot, visible) -
+    closestVisibleIndex(anchorSlot, visible);
+  const newStartVis = Math.max(
+    0,
+    Math.min(visible.length - visSpan, origStartVis + delta),
+  );
+  const startSlot = visible[newStartVis];
+  const lastSlot = visible[newStartVis + visSpan - 1];
+  return { startSlot, endExclusiveSlot: lastSlot + 1 };
 }
 
 /** 작업로그 → half-open 슬롯 범위 (day 뷰) */
