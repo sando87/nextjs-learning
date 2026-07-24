@@ -6,27 +6,30 @@ import {
   type WorkLogDragMode,
 } from "@/components/schedule/use-work-log-drag";
 import type { TaskStatus } from "@/lib/schedule/types";
+import { useEffect, useRef, useState } from "react";
 
 type WorkLogGanttBarProps = {
   status: TaskStatus;
   left: number;
   width: number;
-  title: string;
+  /** 툴팁·바 안 표시용 한 줄 메모 (날짜 없음) */
+  note?: string | null;
   workLogId: string;
-  hasNote?: boolean;
   isPreview?: boolean;
-  /** 시 뷰: 드래그·리사이즈 가능 */
+  selected?: boolean;
+  /** 바 위 인라인 메모 편집 중 */
+  editingNote?: boolean;
   interactive?: boolean;
   disabled?: boolean;
+  onSelect?: (workLogId: string) => void;
+  onEditNote?: (workLogId: string) => void;
+  onCommitNote?: (workLogId: string, note: string) => void;
+  onCancelNote?: () => void;
   onBarPointerDown?: (
     mode: Exclude<WorkLogDragMode, "create">,
     workLogId: string,
     clientX: number,
     clientY: number,
-  ) => void;
-  onBarClick?: (
-    workLogId: string,
-    anchor: { x: number; y: number },
   ) => void;
 };
 
@@ -34,33 +37,63 @@ export default function WorkLogGanttBar({
   status,
   left,
   width,
-  title,
+  note,
   workLogId,
-  hasNote,
   isPreview,
+  selected = false,
+  editingNote = false,
   interactive = false,
   disabled,
+  onSelect,
+  onEditNote,
+  onCommitNote,
+  onCancelNote,
   onBarPointerDown,
-  onBarClick,
 }: WorkLogGanttBarProps) {
+  const noteText = note?.trim() ? note.trim() : "";
+  const canDrag =
+    interactive && selected && !editingNote && Boolean(onBarPointerDown);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState(noteText);
+
+  useEffect(() => {
+    if (!editingNote) return;
+    setDraft((note ?? "").replace(/\s+/g, " ").trim());
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [editingNote, note]);
+
   return (
     <div
-      className={`absolute top-1/2 h-5 -translate-y-1/2 ${isPreview ? "opacity-60" : ""}`}
+      data-work-log-bar={workLogId}
+      className={`absolute top-1/2 h-5 -translate-y-1/2 ${
+        isPreview ? "opacity-60" : ""
+      } ${selected && !isPreview ? "z-10" : ""}`}
       style={{ left, width: Math.max(width, 3) }}
+      title={!editingNote && noteText ? noteText : undefined}
       onPointerDown={(e) => {
-        if (disabled || isPreview) return;
+        if (disabled || isPreview || editingNote) return;
         e.stopPropagation();
-        if (interactive && onBarPointerDown) {
+        // 다른 바 선택 시 이전 선택/편집/드래그를 즉시 중단
+        if (!selected) {
+          onSelect?.(workLogId);
+          return;
+        }
+        if (canDrag) {
           e.preventDefault();
           const rect = e.currentTarget.getBoundingClientRect();
           const mode = getBarDragMode(e.clientX, rect);
-          onBarPointerDown(mode, workLogId, e.clientX, e.clientY);
+          onBarPointerDown?.(mode, workLogId, e.clientX, e.clientY);
         }
       }}
       onClick={(e) => {
-        if (disabled || isPreview || interactive) return;
+        if (disabled || isPreview || editingNote) return;
         e.stopPropagation();
-        onBarClick?.(workLogId, { x: e.clientX, y: e.clientY });
+        // 선택 상태 클릭(드래그 없음)은 훅 → onEditNote
+        if (selected && canDrag) return;
+        if (selected) {
+          onEditNote?.(workLogId);
+        }
       }}
     >
       <GanttBar
@@ -68,24 +101,53 @@ export default function WorkLogGanttBar({
         startIndex={0}
         span={1}
         columnWidth={width}
-        title={title}
         variant="work"
         embedded
-        className={
+        className={`${
           disabled
             ? ""
-            : interactive
+            : canDrag
               ? "cursor-pointer active:cursor-grabbing"
               : "cursor-pointer"
-        }
+        } ${
+          selected && !isPreview
+            ? "ring-2 ring-sky-500 ring-offset-1 ring-offset-white dark:ring-offset-zinc-900"
+            : ""
+        }`}
       />
-      {hasNote && !isPreview ? (
-        <span
-          className="pointer-events-none absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-white ring-1 ring-zinc-600 dark:bg-zinc-200"
-          aria-hidden
+      {editingNote && !isPreview ? (
+        <input
+          ref={inputRef}
+          data-work-log-note
+          type="text"
+          value={draft}
+          disabled={disabled}
+          onChange={(e) => setDraft(e.target.value.replace(/\n/g, ""))}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          placeholder="메모"
+          className="absolute inset-x-0.5 inset-y-0 z-10 bg-transparent text-[10px] font-medium leading-none text-zinc-950 outline-none dark:text-white"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onCommitNote?.(workLogId, draft.trim());
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              onCancelNote?.();
+            }
+          }}
+          onBlur={() => onCommitNote?.(workLogId, draft.trim())}
         />
+      ) : noteText && !isPreview ? (
+        <span
+          className="pointer-events-none absolute inset-x-0.5 top-1/2 -translate-y-1/2 truncate text-[10px] font-medium leading-none text-zinc-950 dark:text-white"
+          aria-hidden
+        >
+          {noteText}
+        </span>
       ) : null}
-      {interactive && !disabled && !isPreview ? (
+      {canDrag && !disabled && !isPreview ? (
         <>
           <div className="absolute inset-y-0 left-0 w-1.5 cursor-w-resize" />
           <div className="absolute inset-y-0 right-0 w-1.5 cursor-e-resize" />

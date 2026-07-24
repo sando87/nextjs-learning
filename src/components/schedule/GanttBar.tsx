@@ -44,7 +44,7 @@ export default function GanttBar({
           : STATUS_COLORS[status]
       } ${className}`}
       style={embedded ? { width: "100%", height: "100%" } : { left, width }}
-      title={title ?? status}
+      {...(title ? { title } : {})}
     />
   );
 }

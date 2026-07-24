@@ -50,6 +50,12 @@ type PendingBar = {
   startY: number;
 };
 
+type PendingCreate = {
+  anchorSlot: number;
+  startX: number;
+  startY: number;
+};
+
 const DRAG_THRESHOLD_PX = 5;
 
 type UseWorkLogDragOptions = {
@@ -162,6 +168,7 @@ export function useWorkLogDrag({
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const pendingBarRef = useRef<PendingBar | null>(null);
+  const pendingCreateRef = useRef<PendingCreate | null>(null);
   const onBarClickRef = useRef(onBarClick);
   onBarClickRef.current = onBarClick;
 
@@ -190,6 +197,7 @@ export function useWorkLogDrag({
   );
 
   const activateBarDrag = useCallback((pendingBar: PendingBar) => {
+    pendingCreateRef.current = null;
     dragRef.current = {
       mode: pendingBar.mode,
       workLogId: pendingBar.workLogId,
@@ -204,6 +212,44 @@ export function useWorkLogDrag({
       endExclusiveSlot: pendingBar.origEndExclusive,
       isNew: false,
     });
+  }, []);
+
+  const activateCreateDrag = useCallback(
+    (pendingCreate: PendingCreate, currentSlot?: number) => {
+      pendingBarRef.current = null;
+      const slot = currentSlot ?? pendingCreate.anchorSlot;
+      dragRef.current = {
+        mode: "create",
+        anchorSlot: pendingCreate.anchorSlot,
+        currentSlot: slot,
+        origStart: pendingCreate.anchorSlot,
+        origEndExclusive: pendingCreate.anchorSlot + 1,
+      };
+      setDraggingWorkLogId(null);
+      setPreview(
+        computePreview(
+          {
+            mode: "create",
+            anchorSlot: pendingCreate.anchorSlot,
+            currentSlot: slot,
+            origStart: pendingCreate.anchorSlot,
+            origEndExclusive: pendingCreate.anchorSlot + 1,
+          },
+          getSlotCount(columns, viewMode),
+          dayLayouts,
+        ),
+      );
+    },
+    [columns, dayLayouts, viewMode],
+  );
+
+  /** 진행 중 드래그/생성을 저장 없이 중단 */
+  const cancelDrag = useCallback(() => {
+    pendingBarRef.current = null;
+    pendingCreateRef.current = null;
+    dragRef.current = null;
+    setPreview(null);
+    setDraggingWorkLogId(null);
   }, []);
 
   const persist = useCallback(
@@ -307,6 +353,17 @@ export function useWorkLogDrag({
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
+      const pendingCreate = pendingCreateRef.current;
+      if (pendingCreate && !dragRef.current) {
+        const dx = e.clientX - pendingCreate.startX;
+        const dy = e.clientY - pendingCreate.startY;
+        if (Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+          pendingCreateRef.current = null;
+          activateCreateDrag(pendingCreate, slotAt(e.clientX));
+        }
+        return;
+      }
+
       const pendingBar = pendingBarRef.current;
       if (pendingBar && !dragRef.current) {
         const dx = e.clientX - pendingBar.startX;
@@ -326,6 +383,12 @@ export function useWorkLogDrag({
     };
 
     const onUp = () => {
+      // 클릭만으로는 생성하지 않음
+      if (pendingCreateRef.current && !dragRef.current) {
+        pendingCreateRef.current = null;
+        return;
+      }
+
       const pendingBar = pendingBarRef.current;
       if (pendingBar && !dragRef.current) {
         pendingBarRef.current = null;
@@ -344,21 +407,23 @@ export function useWorkLogDrag({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [activateBarDrag, dayLayouts, endDrag, slotAt, slotCount]);
+  }, [
+    activateBarDrag,
+    activateCreateDrag,
+    dayLayouts,
+    endDrag,
+    slotAt,
+    slotCount,
+  ]);
 
   const startCreate = useCallback(
-    (clientX: number) => {
-      if (pending || pendingBarRef.current) return;
-      const slot = slotAt(clientX);
-      dragRef.current = {
-        mode: "create",
-        anchorSlot: slot,
-        currentSlot: slot,
-        origStart: slot,
-        origEndExclusive: slot + 1,
+    (clientX: number, clientY: number) => {
+      if (pending || pendingBarRef.current || dragRef.current) return;
+      pendingCreateRef.current = {
+        anchorSlot: slotAt(clientX),
+        startX: clientX,
+        startY: clientY,
       };
-      setDraggingWorkLogId(null);
-      setPreview({ startSlot: slot, endExclusiveSlot: slot + 1, isNew: true });
     },
     [pending, slotAt],
   );
@@ -381,6 +446,7 @@ export function useWorkLogDrag({
       );
       if (!range) return;
 
+      pendingCreateRef.current = null;
       pendingBarRef.current = {
         mode,
         workLogId,
@@ -401,6 +467,7 @@ export function useWorkLogDrag({
     draggingWorkLogId,
     startCreate,
     startBarPointerDown,
+    cancelDrag,
   };
 }
 

@@ -1,10 +1,10 @@
 "use client";
 
+import { deleteWorkLogAction, updateWorkLogAction } from "@/app/schedule/actions";
 import PlanGanttBar from "@/components/schedule/PlanGanttBar";
 import { usePlanDrag } from "@/components/schedule/use-plan-drag";
 import { useWorkLogDrag } from "@/components/schedule/use-work-log-drag";
 import WorkLogGanttBar from "@/components/schedule/WorkLogGanttBar";
-import WorkLogNotePopover from "@/components/schedule/WorkLogNotePopover";
 import type { DayColumnLayout } from "@/lib/schedule/day-workday-layout";
 import { totalDayLayoutsWidth } from "@/lib/schedule/day-workday-layout";
 import { getPlanBarPlacement } from "@/lib/schedule/plan-bar-placements";
@@ -23,8 +23,10 @@ import {
   getMonthTicks,
   getWeekDayTickVisible,
 } from "@/lib/schedule/timeline-utils";
-import type { Task, TimelineColumn, ViewMode, WorkLog } from "@/lib/schedule/types";
-import { useCallback, useMemo, useState } from "react";
+import type { Task, TimelineColumn, ViewMode } from "@/lib/schedule/types";
+import { useWorkLogSelection } from "@/components/schedule/work-log-selection-context";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo } from "react";
 
 type TimelineCellsProps = {
   projectId: string;
@@ -42,20 +44,6 @@ type TimelineCellsProps = {
 
 const TODAY_COL_BG = "bg-rose-50/70 dark:bg-rose-950/35";
 const TODAY_BAND_BG = "bg-rose-200/80 dark:bg-rose-800/45";
-
-type NoteTarget = {
-  workLog: WorkLog;
-  anchor: { x: number; y: number };
-};
-
-function formatWorkLogTitle(log: WorkLog): string {
-  const { startedAt, endedAt, note } = log;
-  const sameDay = startedAt.slice(0, 10) === endedAt.slice(0, 10);
-  const time = sameDay
-    ? `${startedAt.slice(5, 10)} ${startedAt.slice(11, 16)}–${endedAt.slice(11, 16)}`
-    : `${startedAt.slice(0, 16)}–${endedAt.slice(0, 16)}`;
-  return note ? `${time} — ${note}` : time;
-}
 
 function DayColumnGuides({
   startHour,
@@ -142,20 +130,25 @@ export default function TimelineCells({
     isDayView && dayLayouts
       ? totalDayLayoutsWidth(dayLayouts)
       : columns.length * columnWidth;
+  const router = useRouter();
   const isWorkLogEditable = !readOnly && viewMode === "day";
   const isMemoView = isWorkLogEditable;
   const isPlanEditable = !readOnly && (viewMode === "week" || viewMode === "month");
   const showPlan = viewMode === "week" || viewMode === "month";
-  const [noteTarget, setNoteTarget] = useState<NoteTarget | null>(null);
+  const {
+    selectedWorkLogId,
+    editingNoteId,
+    shouldDiscardNoteEdit,
+    select: selectWorkLog,
+    clear: clearWorkLogSelectionGlobal,
+    startEdit,
+    cancelEdit,
+    endEditIf,
+  } = useWorkLogSelection();
 
-  const handleBarClick = useCallback(
-    (workLogId: string, anchor: { x: number; y: number }) => {
-      if (!isMemoView) return;
-      const workLog = task.workLogs.find((l) => l.id === workLogId);
-      if (!workLog) return;
-      setNoteTarget({ workLog, anchor });
-    },
-    [isMemoView, task.workLogs],
+  const ownsSelection = useMemo(
+    () => task.workLogs.some((l) => l.id === selectedWorkLogId),
+    [selectedWorkLogId, task.workLogs],
   );
 
   const {
@@ -165,6 +158,7 @@ export default function TimelineCells({
     draggingWorkLogId,
     startCreate: startWorkLogCreate,
     startBarPointerDown: startWorkLogBarPointerDown,
+    cancelDrag: cancelWorkLogDrag,
   } = useWorkLogDrag({
     projectId,
     taskId: task.id,
@@ -173,8 +167,141 @@ export default function TimelineCells({
     viewMode,
     workLogs: task.workLogs,
     dayLayouts: isDayView ? dayLayouts : undefined,
-    onBarClick: isMemoView ? handleBarClick : undefined,
+    onBarClick: isMemoView
+      ? (workLogId) => {
+          startEdit(workLogId);
+        }
+      : undefined,
   });
+
+  // 다른 업무 바 선택 시 이 행의 드래그/생성 중단
+  useEffect(() => {
+    if (!ownsSelection) cancelWorkLogDrag();
+  }, [cancelWorkLogDrag, ownsSelection]);
+
+  const clearWorkLogSelection = useCallback(() => {
+    clearWorkLogSelectionGlobal();
+    cancelWorkLogDrag();
+  }, [cancelWorkLogDrag, clearWorkLogSelectionGlobal]);
+
+  const handleBarSelect = useCallback(
+    (workLogId: string) => {
+      cancelWorkLogDrag();
+      selectWorkLog(workLogId);
+    },
+    [cancelWorkLogDrag, selectWorkLog],
+  );
+
+  const handleEditNote = useCallback(
+    (workLogId: string) => {
+      startEdit(workLogId);
+    },
+    [startEdit],
+  );
+
+  const handleCancelNote = useCallback(() => {
+    cancelEdit();
+  }, [cancelEdit]);
+
+  const handleCommitNote = useCallback(
+    async (workLogId: string, note: string) => {
+      if (shouldDiscardNoteEdit()) return;
+      if (!endEditIf(workLogId)) return;
+
+      const log = task.workLogs.find((l) => l.id === workLogId);
+      if (!log) return;
+      const next = note.trim();
+      const prev = (log.note ?? "").trim();
+      if (next === prev) return;
+
+      const fd = new FormData();
+      fd.set("projectId", projectId);
+      fd.set("workLogId", workLogId);
+      fd.set("startDate", log.startedAt.slice(0, 10));
+      fd.set("endDate", log.endedAt.slice(0, 10));
+      fd.set("startHour", log.startedAt.slice(11, 13));
+      fd.set("endHour", log.endedAt.slice(11, 13));
+      fd.set("note", next);
+      const result = await updateWorkLogAction(fd);
+      if (!result.ok) console.error(result.error);
+      router.refresh();
+    },
+    [endEditIf, projectId, router, shouldDiscardNoteEdit, task.workLogs],
+  );
+
+  // 바 바깥 클릭 시 선택·편집·드래그 해제 (선택 소유 행만)
+  useEffect(() => {
+    if (!ownsSelection || !isWorkLogEditable) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      if (!target?.closest) return;
+      if (target.closest(`[data-work-log-bar="${selectedWorkLogId}"]`)) return;
+      if (target.closest("[data-work-log-note]")) return;
+      // 같은 행 빈 곳은 container가 clear+생성대기 처리
+      if (target.closest(`[data-task-timeline="${task.id}"]`)) return;
+      clearWorkLogSelection();
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [
+    clearWorkLogSelection,
+    isWorkLogEditable,
+    ownsSelection,
+    selectedWorkLogId,
+    task.id,
+  ]);
+
+  // Delete로 선택 바 삭제 (선택 소유 행만)
+  useEffect(() => {
+    if (!ownsSelection || !isWorkLogEditable || editingNoteId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Delete") return;
+      const el = e.target as HTMLElement | null;
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.isContentEditable)
+      ) {
+        return;
+      }
+      if (!selectedWorkLogId) return;
+      e.preventDefault();
+      const workLogId = selectedWorkLogId;
+      clearWorkLogSelection();
+      void (async () => {
+        const fd = new FormData();
+        fd.set("projectId", projectId);
+        fd.set("workLogId", workLogId);
+        const result = await deleteWorkLogAction(fd);
+        if (!result.ok) console.error(result.error);
+        router.refresh();
+      })();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    clearWorkLogSelection,
+    editingNoteId,
+    isWorkLogEditable,
+    ownsSelection,
+    projectId,
+    router,
+    selectedWorkLogId,
+  ]);
+
+  // 목록에서 사라진 선택 정리
+  useEffect(() => {
+    if (!selectedWorkLogId || !ownsSelection) return;
+    if (!task.workLogs.some((l) => l.id === selectedWorkLogId)) {
+      clearWorkLogSelection();
+    }
+  }, [
+    clearWorkLogSelection,
+    ownsSelection,
+    selectedWorkLogId,
+    task.workLogs,
+  ]);
 
   const {
     containerRef: planContainerRef,
@@ -253,6 +380,7 @@ export default function TimelineCells({
     <td
       colSpan={columns.length}
       data-timeline-zoom
+      data-task-timeline={task.id}
       className="relative border border-zinc-300 p-0 dark:border-zinc-700"
       style={{ width: totalWidth, minWidth: totalWidth, height: 36 }}
     >
@@ -267,8 +395,9 @@ export default function TimelineCells({
         onPointerDown={(e) => {
           if (pending || e.button !== 0) return;
           if (isWorkLogEditable) {
-            setNoteTarget(null);
-            startWorkLogCreate(e.clientX);
+            // 선택/편집 해제 후, 드래그해야만 신규 생성 (클릭만으로는 생성 안 함)
+            clearWorkLogSelection();
+            startWorkLogCreate(e.clientX, e.clientY);
             return;
           }
           if (isPlanEditable && !hasPlan) {
@@ -356,6 +485,8 @@ export default function TimelineCells({
           if (draggingWorkLogId === seg.workLogId) return null;
           const log = task.workLogs.find((l) => l.id === seg.workLogId);
           if (!log) return null;
+          const isSelected = selectedWorkLogId === seg.workLogId;
+          const isEditingNote = editingNoteId === seg.workLogId;
 
           return (
             <WorkLogGanttBar
@@ -364,14 +495,20 @@ export default function TimelineCells({
               status={task.status}
               left={seg.left}
               width={seg.width}
-              title={formatWorkLogTitle(log)}
-              hasNote={isMemoView && Boolean(log.note)}
+              note={log.note}
+              selected={isSelected}
+              editingNote={isEditingNote}
               interactive={isWorkLogEditable}
               disabled={pending}
+              onSelect={isWorkLogEditable ? handleBarSelect : undefined}
+              onEditNote={isMemoView ? handleEditNote : undefined}
+              onCommitNote={isMemoView ? handleCommitNote : undefined}
+              onCancelNote={isMemoView ? handleCancelNote : undefined}
               onBarPointerDown={
-                isWorkLogEditable ? startWorkLogBarPointerDown : undefined
+                isWorkLogEditable && isSelected && !isEditingNote
+                  ? startWorkLogBarPointerDown
+                  : undefined
               }
-              onBarClick={isMemoView ? handleBarClick : undefined}
             />
           );
         })}
@@ -382,22 +519,12 @@ export default function TimelineCells({
             status={task.status}
             left={workLogPreviewSegment.left}
             width={workLogPreviewSegment.width}
-            title="미리보기"
             isPreview
             disabled
             interactive={false}
           />
         ) : null}
       </div>
-
-      {noteTarget ? (
-        <WorkLogNotePopover
-          projectId={projectId}
-          workLog={noteTarget.workLog}
-          anchor={noteTarget.anchor}
-          onClose={() => setNoteTarget(null)}
-        />
-      ) : null}
     </td>
   );
 }

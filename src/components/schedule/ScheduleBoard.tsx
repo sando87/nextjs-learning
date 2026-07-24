@@ -11,6 +11,7 @@ import TaskForm from "@/components/schedule/TaskForm";
 import TaskMetaCells from "@/components/schedule/TaskMetaCells";
 import TimelineCells from "@/components/schedule/TimelineCells";
 import TimelineHeader from "@/components/schedule/TimelineHeader";
+import { WorkLogSelectionProvider } from "@/components/schedule/work-log-selection-context";
 import {
   applyFilters,
   neighborsAtInsert,
@@ -675,6 +676,7 @@ export default function ScheduleBoard({
   );
 
   return (
+    <WorkLogSelectionProvider>
     <div className="flex flex-col gap-4">
       <ScheduleToolbar
         viewMode={viewMode}
@@ -1000,5 +1002,6 @@ export default function ScheduleBoard({
         />
       ) : null}
     </div>
+    </WorkLogSelectionProvider>
   );
 }
