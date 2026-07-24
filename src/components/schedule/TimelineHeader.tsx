@@ -36,7 +36,7 @@ function DayHourTicks({
   columnWidth: number;
 }) {
   const span = Math.max(1, endHour - startHour);
-  const step = getDayHourTickStep(columnWidth);
+  const step = getDayHourTickStep(columnWidth, startHour, endHour);
   const hours: number[] = [];
   for (let h = startHour; h < endHour; h += step) {
     hours.push(h);

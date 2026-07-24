@@ -146,15 +146,42 @@ export function collectScheduleDateBounds(
 }
 
 
-/** 일 셀 너비에 따른 시간 눈금 간격 (시). 6시간 단계는 쓰지 않음 */
-export function getDayHourTickStep(columnWidth: number): 1 | 3 {
-  if (columnWidth >= 288) return 1;
+/**
+ * 일 뷰 시간 눈금 — 조율 포인트 (여기 숫자만 바꾸면 됨)
+ *
+ * hourPx = columnWidth / (endHour - startHour)
+ * 같은 줌(컬럼 너비)이라도 전체시간(24h)은 시당 픽셀이 작아져 더 굵은 눈금이 선택됨.
+ *
+ * 줌 단계(min/max/step) 자체는 schedule-board-state.ts 의 DAY_COLUMN_WIDTH_* 참고.
+ */
+/** 이 너비 이하(줌 최대 아웃)에서는 시 눈금 숨김 */
+export const DAY_HOUR_TICK_MIN_VISIBLE_COLUMN_WIDTH = 72;
+/** hourPx ≥ 이 값이면 1시간 눈금 */
+export const DAY_HOUR_TICK_1H_MIN_HOUR_PX = 17;
+/** 전체시간대: hourPx ≥ 이 값이면 3시간, 미만이면 6시간 */
+export const DAY_HOUR_TICK_3H_MIN_HOUR_PX = 10;
+
+export type DayHourTickStep = 1 | 3 | 6;
+
+/** 일 셀 너비·시간 범위에 따른 시간 눈금 간격 (시) */
+export function getDayHourTickStep(
+  columnWidth: number,
+  startHour: number,
+  endHour: number,
+): DayHourTickStep {
+  const span = Math.max(1, endHour - startHour);
+  const hourPx = columnWidth / span;
+  // 0–24면 전체시간 모드(또는 그에 준하는 범위) → 6h 단계 허용
+  const isFullDayRange = startHour <= 0 && endHour >= 24;
+
+  if (hourPx >= DAY_HOUR_TICK_1H_MIN_HOUR_PX) return 1;
+  if (isFullDayRange && hourPx < DAY_HOUR_TICK_3H_MIN_HOUR_PX) return 6;
   return 3;
 }
 
 /** 최대 줌 아웃에서는 시 눈금 숨김 */
 export function getDayHourTicksVisible(dayColumnWidth: number): boolean {
-  return dayColumnWidth > 72;
+  return dayColumnWidth > DAY_HOUR_TICK_MIN_VISIBLE_COLUMN_WIDTH;
 }
 
 /** 주 셀이 충분히 넓을 때만 하단 요일 날짜 눈금 표시 */

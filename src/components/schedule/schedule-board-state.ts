@@ -90,6 +90,7 @@ export const DEFAULT_FILTERS: BoardFilters = {
   tagIds: [],
 };
 
+/** 일 뷰 줌: 컬럼 기준 너비 (휠로 ±STEP). 눈금 단위는 timeline-utils.ts DAY_HOUR_TICK_* */
 export const DEFAULT_DAY_COLUMN_WIDTH = 144;
 export const MIN_DAY_COLUMN_WIDTH = 72;
 export const MAX_DAY_COLUMN_WIDTH = 480;
