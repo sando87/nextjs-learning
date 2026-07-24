@@ -31,13 +31,17 @@ import {
   DEFAULT_MONTH_COLUMN_WIDTH,
   DEFAULT_VISIBLE_COLUMNS,
   DEFAULT_WEEK_COLUMN_WIDTH,
+  getLastVisibleMetaKey,
+  getMetaStickyLefts,
   loadBoardPreferences,
+  META_COLUMN_WIDTHS,
   MONTH_COLUMN_WIDTH_STEP,
   saveBoardPreferences,
   WEEK_COLUMN_WIDTH_STEP,
   type BoardFilters,
   type BoardLayout,
   type ColumnKey,
+  type MetaColumnKey,
   type SortKey,
 } from "@/components/schedule/schedule-board-state";
 import { useScheduleReplay } from "@/components/schedule/use-schedule-replay";
@@ -380,12 +384,14 @@ export default function ScheduleBoard({
     ? hierarchyRows.map((r) => r.task)
     : boardVisibleTasks;
 
-  const metaHeaders: { key: ColumnKey | "title"; label: string }[] = [
+  const metaHeaders: { key: MetaColumnKey; label: string }[] = [
     { key: "title", label: "WorkUnit" },
     ...(Object.keys(COLUMN_LABELS) as ColumnKey[])
       .filter((k) => visibleColumns[k])
       .map((k) => ({ key: k, label: COLUMN_LABELS[k] })),
   ];
+  const metaStickyLefts = getMetaStickyLefts(visibleColumns);
+  const lastMetaKey = getLastVisibleMetaKey(visibleColumns);
 
   const clearBoardDragState = () => {
     draggingIdRef.current = null;
@@ -609,15 +615,7 @@ export default function ScheduleBoard({
       dayLayouts,
     );
     if (todayLeft == null) return;
-    el.scrollLeft = scrollLeftForTodayDefault(
-      el,
-      todayLeft,
-      viewMode,
-      columnWidth,
-      columns,
-      today,
-      dayLayouts,
-    );
+    el.scrollLeft = scrollLeftForTodayDefault(el, todayLeft, viewMode);
   }, [columns, columnWidth, today, dayLayouts, viewMode]);
 
   const extendPastColumns = useCallback(() => {
@@ -635,7 +633,7 @@ export default function ScheduleBoard({
     setTimelineFutureExtra((prev) => prev + TIMELINE_EXTEND_COLUMNS);
   }, []);
 
-  // 첫 로딩·뷰 전환 시 오늘 기준 왼쪽 1칸
+  // 첫 로딩·뷰 전환 시 오늘을 틀고정 우측 기준 위치로
   useLayoutEffect(() => {
     if (columns.length === 0) return;
     if (didInitialTodayScrollRef.current) return;
@@ -745,16 +743,28 @@ export default function ScheduleBoard({
         <table className="w-max min-w-full border-collapse text-sm">
           <thead>
             <tr>
-              {metaHeaders.map((col) => (
-                <th
-                  key={col.key}
-                  className={`border border-zinc-300 bg-zinc-50 px-2 py-2 text-left text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-900 ${
-                    col.key === "title" ? "sticky left-0 z-10" : ""
-                  }`}
-                >
-                  {col.label}
-                </th>
-              ))}
+              {metaHeaders.map((col) => {
+                const width = META_COLUMN_WIDTHS[col.key];
+                const isEdge = col.key === lastMetaKey;
+                return (
+                  <th
+                    key={col.key}
+                    className={`sticky z-20 relative border border-zinc-300 bg-zinc-50 px-2 py-2 text-left text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-900 before:pointer-events-none before:absolute before:-inset-px before:-z-10 before:bg-zinc-50 dark:before:bg-zinc-900 ${
+                      isEdge
+                        ? "after:pointer-events-none after:absolute after:inset-y-0 after:-right-px after:z-[1] after:w-px after:bg-zinc-400/90 after:content-[''] dark:after:bg-zinc-500 shadow-[4px_0_10px_-6px_rgba(0,0,0,0.28)] dark:shadow-[4px_0_10px_-6px_rgba(0,0,0,0.55)]"
+                        : ""
+                    }`}
+                    style={{
+                      left: metaStickyLefts[col.key] ?? 0,
+                      width,
+                      minWidth: width,
+                      maxWidth: width,
+                    }}
+                  >
+                    {col.label}
+                  </th>
+                );
+              })}
               <TimelineHeader
                 columns={columns}
                 columnWidth={columnWidth}

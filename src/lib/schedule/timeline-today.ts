@@ -76,47 +76,31 @@ export function todayLeftInTimeline(
   return index * columnWidth + band.leftFrac * columnWidth;
 }
 
-/** 오늘 왼쪽에 보일 여백: 일/주=1칸, 월=차트 1/3 */
+/**
+ * 일/주 뷰: 틀고정(메타 열) 오른쪽 모서리 → 오늘 컬럼 시작까지 간격 (px).
+ * 줌 레벨과 무관한 고정 거리. 여기 숫자만 바꾸면 됨.
+ */
+export const TODAY_SCROLL_GAP_FROM_STICKY_PX = 180;
+
+/** 오늘 왼쪽에 보일 여백: 일/주=틀고정 우측에서 고정 px, 월=차트 1/3 */
 function leftPaddingPxBeforeToday(
   viewMode: ViewMode,
-  columnWidth: number,
   chartAreaWidth: number,
-  todayIndex: number,
-  dayLayouts?: DayColumnLayout[],
 ): number {
   if (viewMode === "month") {
     return chartAreaWidth / 3;
   }
-
-  const colsBefore = 1;
-  if (viewMode === "day" && dayLayouts && dayLayouts.length > 0) {
-    const from = Math.max(0, todayIndex - colsBefore);
-    let width = 0;
-    for (let i = from; i < todayIndex; i++) {
-      width += dayLayouts[i]?.width ?? columnWidth;
-    }
-    // 오늘 앞 컬럼이 부족하면 목표 폭으로 보정
-    if (todayIndex < colsBefore) {
-      return colsBefore * columnWidth;
-    }
-    return width;
-  }
-
-  return colsBefore * columnWidth;
+  return TODAY_SCROLL_GAP_FROM_STICKY_PX;
 }
 
 /**
  * 오늘이 차트에 오도록 scrollLeft 계산.
- * 일/주: 왼쪽 ~1칸, 월: 차트 1/3.
+ * 일/주: 틀고정 우측에서 고정 px, 월: 차트 1/3.
  */
 export function scrollLeftForTodayDefault(
   scrollEl: HTMLElement,
   todayLeftPx: number,
   viewMode: ViewMode,
-  columnWidth: number,
-  columns: TimelineColumn[],
-  today: string,
-  dayLayouts?: DayColumnLayout[],
 ): number {
   const firstTimeline = scrollEl.querySelector(
     "[data-timeline-zoom]",
@@ -125,19 +109,12 @@ export function scrollLeftForTodayDefault(
   const metaWidth =
     firstTimeline != null
       ? firstTimeline.getBoundingClientRect().left -
-        rootRect.left +
-        scrollEl.scrollLeft
+      rootRect.left +
+      scrollEl.scrollLeft
       : 0;
   const chartAreaWidth = Math.max(0, scrollEl.clientWidth - metaWidth);
   const maxScroll = Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);
-  const todayIndex = columns.findIndex((c) => columnContainsDate(c, today));
-  const pad = leftPaddingPxBeforeToday(
-    viewMode,
-    columnWidth,
-    chartAreaWidth,
-    Math.max(0, todayIndex),
-    dayLayouts,
-  );
+  const pad = leftPaddingPxBeforeToday(viewMode, chartAreaWidth);
   const next = todayLeftPx - pad;
   return Math.max(0, Math.min(maxScroll, next));
 }

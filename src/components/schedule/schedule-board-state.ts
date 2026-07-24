@@ -5,6 +5,8 @@ export type ColumnKey =
   | "tags"
   | "workHours";
 
+export type MetaColumnKey = ColumnKey | "title";
+
 export type BoardLayout = "board" | "hierarchy";
 
 export const COLUMN_LABELS: Record<ColumnKey, string> = {
@@ -22,6 +24,52 @@ export const DEFAULT_VISIBLE_COLUMNS: Record<ColumnKey, boolean> = {
   tags: true,
   workHours: true,
 };
+
+/** sticky left 누적 계산용 — 셀/헤더 min-width와 동일하게 유지 */
+export const META_COLUMN_WIDTHS: Record<MetaColumnKey, number> = {
+  title: 160,
+  worker: 100,
+  state: 80,
+  priority: 56,
+  tags: 120,
+  workHours: 64,
+};
+
+const META_COLUMN_ORDER: MetaColumnKey[] = [
+  "title",
+  "worker",
+  "state",
+  "priority",
+  "tags",
+  "workHours",
+];
+
+/** 보이는 메타 열마다 sticky `left` (px). 숨긴 열은 맵에 없음 */
+export function getMetaStickyLefts(
+  visibleColumns: Record<ColumnKey, boolean>,
+): Partial<Record<MetaColumnKey, number>> {
+  let left = 0;
+  const result: Partial<Record<MetaColumnKey, number>> = {};
+  for (const key of META_COLUMN_ORDER) {
+    if (key !== "title" && !visibleColumns[key]) continue;
+    result[key] = left;
+    // 1px 겹쳐 열 사이 border 틈으로 타임라인이 비치지 않게 함
+    left += META_COLUMN_WIDTHS[key] - 1;
+  }
+  return result;
+}
+
+/** 틀 고정 영역 맨 오른쪽 열 — 타임라인과 구분선용 */
+export function getLastVisibleMetaKey(
+  visibleColumns: Record<ColumnKey, boolean>,
+): MetaColumnKey {
+  let last: MetaColumnKey = "title";
+  for (const key of META_COLUMN_ORDER) {
+    if (key !== "title" && !visibleColumns[key]) continue;
+    last = key;
+  }
+  return last;
+}
 
 export type SortKey =
   | "sortOrder"

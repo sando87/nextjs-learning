@@ -26,7 +26,7 @@ type ScheduleToolbarProps = {
   onFilterChange: (filters: BoardFilters) => void;
   onAddTask: () => void;
   onReplayModeChange: (enabled: boolean) => void;
-  /** 오늘 기준 왼쪽 1칸이 보이도록 스크롤 */
+  /** 오늘을 틀고정 우측 기준 위치로 스크롤 */
   onScrollToToday?: () => void;
   /** 과거 날짜 컬럼 7칸 추가 */
   onExtendPast?: () => void;
@@ -119,7 +119,7 @@ export default function ScheduleToolbar({
         <button
           type="button"
           onClick={onScrollToToday}
-          title="오늘 기준으로 스크롤 (왼쪽 1칸)"
+          title="오늘 기준으로 스크롤"
           className="rounded border border-rose-300 px-3 py-1.5 text-sm text-rose-700 dark:border-rose-800 dark:text-rose-300"
         >
           오늘
