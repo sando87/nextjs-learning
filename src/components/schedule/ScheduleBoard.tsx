@@ -77,6 +77,7 @@ import {
   scrollLeftForTodayDefault,
   todayLeftInTimeline,
 } from "@/lib/schedule/timeline-today";
+import { formatRelativeColumnLabel } from "@/lib/schedule/relative-timeline-labels";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -156,6 +157,7 @@ export default function ScheduleBoard({
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(
     () => new Set(saved.collapsedIds ?? []),
   );
+  const [useRelativeDates] = useState(saved.useRelativeDates ?? false);
   const [editingTarget, setEditingTarget] = useState<EditingTarget>(undefined);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
@@ -231,6 +233,7 @@ export default function ScheduleBoard({
         weekColumnWidth: number;
         monthColumnWidth: number;
         collapsedIds: string[];
+        useRelativeDates: boolean;
       }>,
     ) => {
       saveBoardPreferences(project.id, {
@@ -243,6 +246,7 @@ export default function ScheduleBoard({
         weekColumnWidth: next.weekColumnWidth ?? weekColumnWidth,
         monthColumnWidth: next.monthColumnWidth ?? monthColumnWidth,
         collapsedIds: next.collapsedIds ?? [...collapsedIds],
+        useRelativeDates: next.useRelativeDates ?? useRelativeDates,
       });
     },
     [
@@ -256,6 +260,7 @@ export default function ScheduleBoard({
       weekColumnWidth,
       monthColumnWidth,
       collapsedIds,
+      useRelativeDates,
     ],
   );
 
@@ -310,6 +315,19 @@ export default function ScheduleBoard({
     );
     return generateTimelineColumns("month", rangeStart, rangeEnd, 14);
   }, [viewMode, tasks, today, timelinePastExtra, timelineFutureExtra]);
+
+  // 설정에서 켠 경우 헤더 라벨만 프로젝트 시작일 기준 상대날짜로 교체
+  const headerColumns = useMemo(() => {
+    if (!useRelativeDates) return columns;
+    return columns.map((col) => ({
+      ...col,
+      label: formatRelativeColumnLabel(
+        viewMode,
+        col.startDate,
+        project.startDate,
+      ),
+    }));
+  }, [columns, useRelativeDates, viewMode, project.startDate]);
 
   const effectiveColumnWidth =
     viewMode === "day"
@@ -766,7 +784,7 @@ export default function ScheduleBoard({
                 );
               })}
               <TimelineHeader
-                columns={columns}
+                columns={headerColumns}
                 columnWidth={columnWidth}
                 viewMode={viewMode}
                 today={today}

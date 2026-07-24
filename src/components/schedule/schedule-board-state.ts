@@ -115,6 +115,8 @@ export type BoardPreferences = {
   weekColumnWidth: number;
   monthColumnWidth: number;
   collapsedIds: string[];
+  /** true면 헤더를 프로젝트 시작일 기준 상대날짜(0Day 등)로 표기. 기본 false=절대날짜 */
+  useRelativeDates: boolean;
 };
 
 function clampDayColumnWidth(width: number): number {
@@ -157,6 +159,7 @@ export function loadBoardPreferences(projectId: string): Partial<BoardPreference
       weekColumnWidth?: number;
       monthColumnWidth?: number;
       collapsedIds?: string[];
+      useRelativeDates?: boolean;
     };
     const result: Partial<BoardPreferences> = {};
 
@@ -194,6 +197,9 @@ export function loadBoardPreferences(projectId: string): Partial<BoardPreference
         (id): id is string => typeof id === "string",
       );
     }
+    if (typeof parsed.useRelativeDates === "boolean") {
+      result.useRelativeDates = parsed.useRelativeDates;
+    }
     return result;
   } catch {
     return {};
@@ -205,6 +211,30 @@ export function saveBoardPreferences(
   prefs: BoardPreferences,
 ) {
   localStorage.setItem(getStorageKey(projectId), JSON.stringify(prefs));
+}
+
+/** 저장된 값 + 기본값에 patch를 합쳐 저장 (설정 페이지 등 부분 갱신용) */
+export function patchBoardPreferences(
+  projectId: string,
+  patch: Partial<BoardPreferences>,
+) {
+  const saved = loadBoardPreferences(projectId);
+  saveBoardPreferences(projectId, {
+    viewMode: saved.viewMode ?? "week",
+    boardLayout: saved.boardLayout ?? "board",
+    sortKey: saved.sortKey ?? "sortOrder",
+    visibleColumns: {
+      ...DEFAULT_VISIBLE_COLUMNS,
+      ...saved.visibleColumns,
+    },
+    filters: saved.filters ?? DEFAULT_FILTERS,
+    dayColumnWidth: saved.dayColumnWidth ?? DEFAULT_DAY_COLUMN_WIDTH,
+    weekColumnWidth: saved.weekColumnWidth ?? DEFAULT_WEEK_COLUMN_WIDTH,
+    monthColumnWidth: saved.monthColumnWidth ?? DEFAULT_MONTH_COLUMN_WIDTH,
+    collapsedIds: saved.collapsedIds ?? [],
+    useRelativeDates: saved.useRelativeDates ?? false,
+    ...patch,
+  });
 }
 
 export {

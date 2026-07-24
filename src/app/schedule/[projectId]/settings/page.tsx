@@ -1,5 +1,6 @@
 import { removeMemberAction, updateProjectAction } from "@/app/schedule/actions";
 import MemberManager from "@/components/schedule/MemberManager";
+import RelativeDateSetting from "@/components/schedule/RelativeDateSetting";
 import TagManager from "@/components/schedule/TagManager";
 import { getProjectMembers } from "@/lib/schedule/members-store";
 import { getProjectRole, requireUser } from "@/lib/schedule/permissions";
@@ -121,6 +122,11 @@ export default async function ProjectSettingsPage({ params }: SettingsPageProps)
           </p>
         </div>
       )}
+
+      <RelativeDateSetting
+        projectId={projectId}
+        projectStartDate={project.startDate}
+      />
 
       <MemberManager
         projectId={projectId}
