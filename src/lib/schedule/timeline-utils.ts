@@ -69,6 +69,83 @@ function latestBound(
   return dates.sort((a, b) => b.getTime() - a.getTime())[0];
 }
 
+function earliestBound(
+  taskStartDates: (string | null)[],
+  workLogStartAts: string[],
+): Date | null {
+  const dates = [
+    ...taskStartDates.filter((d): d is string => d !== null).map(parseDate),
+    ...workLogStartAts.map((v) => parseDateTime(v)),
+  ];
+  if (dates.length === 0) return null;
+  return dates.sort((a, b) => a.getTime() - b.getTime())[0];
+}
+
+/** 뷰 단위로 날짜를 N칸 이동 */
+export function shiftDateByColumns(
+  dateStr: string,
+  viewMode: ViewMode,
+  columns: number,
+): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (viewMode === "day") {
+    return formatDateStr(new Date(y, m - 1, d + columns));
+  }
+  if (viewMode === "week") {
+    return formatDateStr(new Date(y, m - 1, d + columns * 7));
+  }
+  return formatDateStr(new Date(y, m - 1 + columns, d));
+}
+
+/** 버튼으로 과거/미래 컬럼 추가 시 칸 수 (일=7일, 주=7주, 월=7개월) */
+export const TIMELINE_EXTEND_COLUMNS = 7;
+
+/** 오늘 기준 초기 과거 패딩 (1/3 스크롤용, 업무 없어도) */
+export const TIMELINE_INITIAL_PAST_PADDING: Record<ViewMode, number> = {
+  day: 7,
+  week: 2,
+  month: 1,
+};
+
+export type ScheduleDateBounds = {
+  startDate: string;
+  endDate: string;
+};
+
+/**
+ * 업무·작업로그·오늘을 반영한 일정 날짜 범위.
+ * 프로젝트 시작일과 무관.
+ */
+export function collectScheduleDateBounds(
+  taskStartDates: (string | null)[],
+  taskEndDates: (string | null)[],
+  workLogStartAts: string[],
+  workLogEndAts: string[],
+  today: string,
+): ScheduleDateBounds {
+  // 시작/종료 모두 양쪽에 반영 (한쪽만 있는 업무 포함)
+  const earliest = earliestBound(
+    [...taskStartDates, ...taskEndDates],
+    workLogStartAts,
+  );
+  const latest = latestBound(
+    [...taskStartDates, ...taskEndDates],
+    workLogEndAts,
+  );
+  const todayDate = parseDate(today);
+
+  let start = earliest ?? todayDate;
+  let end = latest ?? todayDate;
+  if (todayDate < start) start = todayDate;
+  if (todayDate > end) end = todayDate;
+
+  return {
+    startDate: formatDateStr(start),
+    endDate: formatDateStr(end),
+  };
+}
+
+
 /** 일 셀 너비에 따른 시간 눈금 간격 (시). 6시간 단계는 쓰지 않음 */
 export function getDayHourTickStep(columnWidth: number): 1 | 3 {
   if (columnWidth >= 288) return 1;
@@ -149,32 +226,24 @@ export function getMonthTicks(
 
 export function generateTimelineColumns(
   viewMode: ViewMode,
-  projectStartDate: string,
-  taskEndDates: (string | null)[],
-  count = 14,
-  workLogEndAts: string[] = [],
+  rangeStartDate: string,
+  rangeEndDate: string,
+  minCount = 14,
 ): TimelineColumn[] {
-  const start = parseDate(projectStartDate);
-  // 계획 종료일 + 작업로그 종료일 모두 반영해 타임라인 길이를 잡음
-  const latestEnd = latestBound(taskEndDates, workLogEndAts);
+  const start = parseDate(rangeStartDate);
+  const end = parseDate(rangeEndDate);
 
   if (viewMode === "day") {
     const columns: TimelineColumn[] = [];
-    let minCount = count;
-    if (latestEnd) {
-      const days =
-        Math.ceil(
-          (latestEnd.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
-        ) + 1;
-      minCount = Math.max(count, days);
-    }
+    const days =
+      Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const count = Math.max(minCount, Math.max(1, days));
 
-    for (let i = 0; i < minCount; i++) {
+    for (let i = 0; i < count; i++) {
       const day = addDays(start, i);
-      const label = `${day.getMonth() + 1}/${day.getDate()}`;
       columns.push({
         key: formatDateStr(day),
-        label,
+        label: `${day.getMonth() + 1}/${day.getDate()}`,
         startDate: formatDateStr(day),
         endDate: formatDateStr(day),
       });
@@ -185,18 +254,13 @@ export function generateTimelineColumns(
   if (viewMode === "week") {
     const columns: TimelineColumn[] = [];
     const weekStart = startOfWeek(start);
-    let minCount = count;
+    const weeks =
+      Math.ceil(
+        (end.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24 * 7),
+      ) + 1;
+    const count = Math.max(minCount, Math.max(1, weeks));
 
-    if (latestEnd) {
-      const weeks =
-        Math.ceil(
-          (latestEnd.getTime() - weekStart.getTime()) /
-            (1000 * 60 * 60 * 24 * 7),
-        ) + 1;
-      minCount = Math.max(count, weeks);
-    }
-
-    for (let i = 0; i < minCount; i++) {
+    for (let i = 0; i < count; i++) {
       const ws = addDays(weekStart, i * 7);
       const we = endOfWeek(ws);
       const startLabel = `${ws.getMonth() + 1}/${ws.getDate()}`;
@@ -217,17 +281,13 @@ export function generateTimelineColumns(
 
   const columns: TimelineColumn[] = [];
   const monthStart = startOfMonth(start);
-  let minCount = count;
+  const months =
+    (end.getFullYear() - monthStart.getFullYear()) * 12 +
+    (end.getMonth() - monthStart.getMonth()) +
+    1;
+  const count = Math.max(minCount, Math.max(1, months));
 
-  if (latestEnd) {
-    const months =
-      (latestEnd.getFullYear() - monthStart.getFullYear()) * 12 +
-      (latestEnd.getMonth() - monthStart.getMonth()) +
-      1;
-    minCount = Math.max(count, months);
-  }
-
-  for (let i = 0; i < minCount; i++) {
+  for (let i = 0; i < count; i++) {
     const ms = new Date(
       monthStart.getFullYear(),
       monthStart.getMonth() + i,

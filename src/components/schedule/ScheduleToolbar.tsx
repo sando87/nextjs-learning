@@ -26,6 +26,12 @@ type ScheduleToolbarProps = {
   onFilterChange: (filters: BoardFilters) => void;
   onAddTask: () => void;
   onReplayModeChange: (enabled: boolean) => void;
+  /** 오늘 기준 왼쪽 1칸이 보이도록 스크롤 */
+  onScrollToToday?: () => void;
+  /** 과거 날짜 컬럼 7칸 추가 */
+  onExtendPast?: () => void;
+  /** 미래 날짜 컬럼 7칸 추가 */
+  onExtendFuture?: () => void;
 };
 
 const VIEW_OPTIONS: { value: ViewMode; label: string }[] = [
@@ -63,8 +69,13 @@ export default function ScheduleToolbar({
   onFilterChange,
   onAddTask,
   onReplayModeChange,
+  onScrollToToday,
+  onExtendPast,
+  onExtendFuture,
 }: ScheduleToolbarProps) {
   const isHierarchy = boardLayout === "hierarchy";
+  const extendUnit =
+    viewMode === "day" ? "일" : viewMode === "week" ? "주" : "개월";
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 pb-3 dark:border-zinc-800">
@@ -104,6 +115,45 @@ export default function ScheduleToolbar({
         ))}
       </div>
 
+      {onScrollToToday ? (
+        <button
+          type="button"
+          onClick={onScrollToToday}
+          title="오늘 기준으로 스크롤 (왼쪽 1칸)"
+          className="rounded border border-rose-300 px-3 py-1.5 text-sm text-rose-700 dark:border-rose-800 dark:text-rose-300"
+        >
+          오늘
+        </button>
+      ) : null}
+
+      {onExtendPast || onExtendFuture ? (
+        <div className="flex rounded border border-zinc-300 dark:border-zinc-700">
+          {onExtendPast ? (
+            <button
+              type="button"
+              onClick={onExtendPast}
+              title={`과거 7${extendUnit} 컬럼 추가`}
+              className="px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400"
+            >
+              ← 과거 +7
+            </button>
+          ) : null}
+          {onExtendPast && onExtendFuture ? (
+            <span className="w-px self-stretch bg-zinc-300 dark:bg-zinc-700" />
+          ) : null}
+          {onExtendFuture ? (
+            <button
+              type="button"
+              onClick={onExtendFuture}
+              title={`미래 7${extendUnit} 컬럼 추가`}
+              className="px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400"
+            >
+              미래 +7 →
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <button
         type="button"
         onClick={() => onReplayModeChange(!isReplayMode)}
@@ -115,7 +165,6 @@ export default function ScheduleToolbar({
       >
         Replay
       </button>
-
       <FilterPanel
         filters={filters}
         members={members}

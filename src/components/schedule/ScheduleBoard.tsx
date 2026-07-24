@@ -41,7 +41,13 @@ import {
   type SortKey,
 } from "@/components/schedule/schedule-board-state";
 import { useScheduleReplay } from "@/components/schedule/use-schedule-replay";
-import { generateTimelineColumns } from "@/lib/schedule/timeline-utils";
+import {
+  collectScheduleDateBounds,
+  generateTimelineColumns,
+  shiftDateByColumns,
+  TIMELINE_EXTEND_COLUMNS,
+  TIMELINE_INITIAL_PAST_PADDING,
+} from "@/lib/schedule/timeline-utils";
 import {
   buildDayColumnLayouts,
   type DaySessionExpand,
@@ -59,6 +65,14 @@ import type {
   ViewMode,
 } from "@/lib/schedule/types";
 import { useHierarchyNestDrag } from "@/components/schedule/use-hierarchy-nest-drag";
+import {
+  filterTasksByChartWindow,
+} from "@/lib/schedule/done-task-visibility";
+import {
+  localTodayStr,
+  scrollLeftForTodayDefault,
+  todayLeftInTimeline,
+} from "@/lib/schedule/timeline-today";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -154,6 +168,10 @@ export default function ScheduleBoard({
     useState<ViewMode | null>(null);
   const [replaySessionId, setReplaySessionId] = useState(0);
   const [measuredPlayheadBase, setMeasuredPlayheadBase] = useState(0);
+  /** 타임라인 왼쪽(과거)으로 추가로 연 칸 수 */
+  const [timelinePastExtra, setTimelinePastExtra] = useState(0);
+  /** 타임라인 오른쪽(미래)으로 추가로 연 칸 수 */
+  const [timelineFutureExtra, setTimelineFutureExtra] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** Board reorder용 — React dragend/drop 순서 이슈 대비 */
   const draggingIdRef = useRef<string | null>(null);
@@ -166,6 +184,13 @@ export default function ScheduleBoard({
   monthWidthRef.current = monthColumnWidth;
   /** 줌 후 커서 아래 지점을 유지하기 위한 scrollLeft */
   const pendingScrollLeftRef = useRef<number | null>(null);
+  /** 왼쪽에 컬럼 추가 후 scroll 위치 보정 */
+  const pendingPastScrollPreserveRef = useRef<{
+    prevScrollWidth: number;
+    prevScrollLeft: number;
+  } | null>(null);
+  const didInitialTodayScrollRef = useRef(false);
+  const today = localTodayStr();
 
   const isHierarchy = boardLayout === "hierarchy";
 
@@ -230,17 +255,57 @@ export default function ScheduleBoard({
     ],
   );
 
-  const columns = useMemo(
-    () =>
-      generateTimelineColumns(
-        viewMode,
-        project.startDate,
-        tasks.map((t) => t.endDate),
-        14,
-        tasks.flatMap((t) => t.workLogs.map((log) => log.endedAt)),
-      ),
-    [viewMode, project.startDate, tasks],
-  );
+  const columns = useMemo(() => {
+    // 일 뷰: 총 21칸, 오늘 기준 왼쪽 7칸 + 나머지(오늘 포함) 오른쪽
+    if (viewMode === "day") {
+      const pastCols = 7 + timelinePastExtra;
+      const totalCols = 21 + timelinePastExtra + timelineFutureExtra;
+      const rangeStart = shiftDateByColumns(today, "day", -pastCols);
+      const rangeEnd = shiftDateByColumns(rangeStart, "day", totalCols - 1);
+      return generateTimelineColumns("day", rangeStart, rangeEnd, totalCols);
+    }
+
+    // 주 뷰: 총 14칸, 오늘 기준 왼쪽 2칸 + 나머지(오늘 포함) 오른쪽
+    if (viewMode === "week") {
+      const pastCols = 2 + timelinePastExtra;
+      const totalCols = 14 + timelinePastExtra + timelineFutureExtra;
+      const rangeStart = shiftDateByColumns(today, "week", -pastCols);
+      const rangeEnd = shiftDateByColumns(
+        rangeStart,
+        "week",
+        totalCols - 1,
+      );
+      return generateTimelineColumns("week", rangeStart, rangeEnd, totalCols);
+    }
+
+    // 월 뷰: 업무 범위 + 최소 14칸
+    const workLogStarts = tasks.flatMap((t) =>
+      t.workLogs.map((log) => log.startedAt),
+    );
+    const workLogEnds = tasks.flatMap((t) =>
+      t.workLogs.map((log) => log.endedAt),
+    );
+    const bounds = collectScheduleDateBounds(
+      tasks.map((t) => t.startDate),
+      tasks.map((t) => t.endDate),
+      workLogStarts,
+      workLogEnds,
+      today,
+    );
+    const pastPad =
+      TIMELINE_INITIAL_PAST_PADDING.month + timelinePastExtra;
+    const rangeStart = shiftDateByColumns(
+      bounds.startDate,
+      "month",
+      -pastPad,
+    );
+    const rangeEnd = shiftDateByColumns(
+      bounds.endDate,
+      "month",
+      timelineFutureExtra,
+    );
+    return generateTimelineColumns("month", rangeStart, rangeEnd, 14);
+  }, [viewMode, tasks, today, timelinePastExtra, timelineFutureExtra]);
 
   const effectiveColumnWidth =
     viewMode === "day"
@@ -262,9 +327,15 @@ export default function ScheduleBoard({
 
   const displayTasks = isReplayMode ? replay.replayedTasks : tasksWithParents;
 
+  /** 활성 상태는 전부, 완료는 차트 윈도우 날짜(updated_at) 안만 */
+  const loadedTasks = useMemo(
+    () => filterTasksByChartWindow(displayTasks, columns),
+    [displayTasks, columns],
+  );
+
   const allWorkLogs = useMemo(
-    () => displayTasks.flatMap((t) => t.workLogs),
-    [displayTasks],
+    () => loadedTasks.flatMap((t) => t.workLogs),
+    [loadedTasks],
   );
 
   const dayLayouts = useMemo(() => {
@@ -293,17 +364,17 @@ export default function ScheduleBoard({
     viewMode === "day" || viewMode === "week" || viewMode === "month";
 
   const boardVisibleTasks = useMemo(
-    () => sortTasks(applyFilters(displayTasks, filters), sortKey),
-    [displayTasks, filters, sortKey],
+    () => sortTasks(applyFilters(loadedTasks, filters), sortKey),
+    [loadedTasks, filters, sortKey],
   );
 
   const hierarchyRows = useMemo(() => {
-    const filtered = filterTasksKeepingAncestors(displayTasks, (t) =>
+    const filtered = filterTasksKeepingAncestors(loadedTasks, (t) =>
       matchesFilters(t, filters),
     );
     const tree = buildTaskTree(filtered);
     return flattenVisible(tree, collapsedIds);
-  }, [displayTasks, filters, collapsedIds]);
+  }, [loadedTasks, filters, collapsedIds]);
 
   const visibleTasks = isHierarchy
     ? hierarchyRows.map((r) => r.task)
@@ -402,7 +473,7 @@ export default function ScheduleBoard({
     onTitlePointerDown,
   } = useHierarchyNestDrag({
     enabled: isHierarchy && !isReplayMode,
-    tasks: displayTasks,
+    tasks: loadedTasks,
     chartRef: scrollRef,
     onNest: applyNest,
   });
@@ -518,6 +589,60 @@ export default function ScheduleBoard({
     el.scrollLeft = nextScroll;
   }, [dayColumnWidth, weekColumnWidth, monthColumnWidth, dayLayouts]);
 
+  // 왼쪽에 과거 컬럼 추가 후 스크롤 위치 유지
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const pending = pendingPastScrollPreserveRef.current;
+    if (!el || !pending) return;
+    pendingPastScrollPreserveRef.current = null;
+    el.scrollLeft =
+      el.scrollWidth - pending.prevScrollWidth + pending.prevScrollLeft;
+  }, [columns]);
+
+  const scrollToTodayDefault = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const todayLeft = todayLeftInTimeline(
+      columns,
+      columnWidth,
+      today,
+      dayLayouts,
+    );
+    if (todayLeft == null) return;
+    el.scrollLeft = scrollLeftForTodayDefault(
+      el,
+      todayLeft,
+      viewMode,
+      columnWidth,
+      columns,
+      today,
+      dayLayouts,
+    );
+  }, [columns, columnWidth, today, dayLayouts, viewMode]);
+
+  const extendPastColumns = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) {
+      pendingPastScrollPreserveRef.current = {
+        prevScrollWidth: el.scrollWidth,
+        prevScrollLeft: el.scrollLeft,
+      };
+    }
+    setTimelinePastExtra((prev) => prev + TIMELINE_EXTEND_COLUMNS);
+  }, []);
+
+  const extendFutureColumns = useCallback(() => {
+    setTimelineFutureExtra((prev) => prev + TIMELINE_EXTEND_COLUMNS);
+  }, []);
+
+  // 첫 로딩·뷰 전환 시 오늘 기준 왼쪽 1칸
+  useLayoutEffect(() => {
+    if (columns.length === 0) return;
+    if (didInitialTodayScrollRef.current) return;
+    scrollToTodayDefault();
+    didInitialTodayScrollRef.current = true;
+  }, [columns, dayLayouts, scrollToTodayDefault]);
+
   const patchDayExpand = useCallback(
     (date: string, patch: Partial<DaySessionExpand>) => {
       setDaySessionExpands((prev) => {
@@ -547,6 +672,9 @@ export default function ScheduleBoard({
         onViewModeChange={(mode) => {
           if (isReplayMode) return;
           setViewMode(mode);
+          setTimelinePastExtra(0);
+          setTimelineFutureExtra(0);
+          didInitialTodayScrollRef.current = false;
           persist({ viewMode: mode });
         }}
         onBoardLayoutChange={(layout) => {
@@ -569,6 +697,9 @@ export default function ScheduleBoard({
           persist({ filters: next });
         }}
         onAddTask={() => setEditingTarget(null)}
+        onScrollToToday={scrollToTodayDefault}
+        onExtendPast={extendPastColumns}
+        onExtendFuture={extendFutureColumns}
         onReplayModeChange={(enabled) => {
           if (enabled) {
             setViewModeBeforeReplay(viewMode);
@@ -628,6 +759,7 @@ export default function ScheduleBoard({
                 columns={columns}
                 columnWidth={columnWidth}
                 viewMode={viewMode}
+                today={today}
                 dayLayouts={dayLayouts}
                 sessionExpands={daySessionExpands}
                 onExpandEarly={(date) =>
@@ -799,6 +931,7 @@ export default function ScheduleBoard({
                       columns={columns}
                       columnWidth={columnWidth}
                       viewMode={viewMode}
+                      today={today}
                       dayLayouts={dayLayouts}
                       sessionExpands={daySessionExpands}
                       readOnly={isReplayMode}

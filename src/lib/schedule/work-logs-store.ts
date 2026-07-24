@@ -40,6 +40,19 @@ async function projectIdForTask(taskId: string): Promise<string> {
   return data.project_id as string;
 }
 
+/** worklog 변경 시 연결된 task.updated_at도 갱신 */
+async function touchTaskUpdatedAt(taskId: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("tasks")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", taskId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 function toWorkLog(row: WorkLogRow): WorkLog {
   return {
     id: row.id,
@@ -106,6 +119,7 @@ export async function createWorkLog(input: CreateWorkLogInput): Promise<WorkLog>
   }
 
   const row = data as WorkLogRow;
+  await touchTaskUpdatedAt(row.task_id);
   const actorId = await currentActorId();
   await insertScheduleChangeEvents(
     fieldChangeRows(
@@ -175,6 +189,7 @@ export async function updateWorkLog(
   }
 
   const row = data as WorkLogRow;
+  await touchTaskUpdatedAt(row.task_id);
   const actorId = await currentActorId();
   await insertScheduleChangeEvents(
     fieldChangeRows(
@@ -246,5 +261,9 @@ export async function deleteWorkLog(workLogId: string): Promise<void> {
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (existing) {
+    await touchTaskUpdatedAt((existing as WorkLogRow).task_id);
   }
 }

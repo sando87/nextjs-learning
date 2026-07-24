@@ -29,6 +29,7 @@ type TaskRow = {
   sort_order: number;
   parent_id: string | null;
   created_at: string;
+  updated_at: string;
 };
 
 type TagRow = {
@@ -39,7 +40,7 @@ type TagRow = {
 };
 
 const TASK_SELECT =
-  "id, project_id, title, assignee_id, status, start_date, end_date, priority, sort_order, parent_id, created_at";
+  "id, project_id, title, assignee_id, status, start_date, end_date, priority, sort_order, parent_id, created_at, updated_at";
 
 function toTag(row: TagRow): Tag {
   return {
@@ -69,6 +70,7 @@ function toTask(
     sortOrder: row.sort_order,
     parentId: row.parent_id,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
     tags,
     workLogs,
   };

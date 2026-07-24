@@ -1,6 +1,10 @@
 import type { DayColumnLayout } from "@/lib/schedule/day-workday-layout";
 import type { TimelineColumn, ViewMode } from "@/lib/schedule/types";
 import {
+  columnContainsDate,
+  todayBandInColumn,
+} from "@/lib/schedule/timeline-today";
+import {
   getDayHourTickStep,
   getDayHourTicksVisible,
   getMonthTickMode,
@@ -12,6 +16,8 @@ type TimelineHeaderProps = {
   columns: TimelineColumn[];
   columnWidth: number;
   viewMode: ViewMode;
+  /** YYYY-MM-DD — 해당 일 포함 열 배경 강조 */
+  today: string;
   dayLayouts?: DayColumnLayout[];
   onExpandEarly?: (date: string) => void;
   onExpandLate?: (date: string) => void;
@@ -21,6 +27,9 @@ type TimelineHeaderProps = {
   /** Replay: 헤더 클릭 시 해당 x로 시점 이동 */
   onSeekClick?: (clientX: number) => void;
 };
+
+const TODAY_COL_BG = "bg-rose-50/90 dark:bg-rose-950/45";
+const TODAY_BAND_BG = "bg-rose-200/90 dark:bg-rose-800/55";
 
 function DayHourTicks({
   startHour,
@@ -123,6 +132,7 @@ export default function TimelineHeader({
   columns,
   columnWidth,
   viewMode,
+  today,
   dayLayouts,
   onExpandEarly,
   onExpandLate,
@@ -155,14 +165,23 @@ export default function TimelineHeader({
           isDayView && Boolean(session?.early) && startHour === 0;
         const canCollapseLate =
           isDayView && Boolean(session?.late) && endHour === 24;
+        const isTodayCol = columnContainsDate(col, today);
+        const todayBand =
+          isTodayCol && !isDayView ? todayBandInColumn(col, today) : null;
+        // 일 뷰: 열 전체 배경 / 주·월: 날짜 밴드만
+        const dayTodayBg = isDayView && isTodayCol;
 
         return (
           <th
             key={col.key}
             data-timeline-zoom
-            className={`border border-zinc-300 bg-zinc-50 px-0.5 text-center font-medium dark:border-zinc-700 dark:bg-zinc-900 ${
-              useStackedHeader ? "py-1 text-xs" : "py-2 text-xs"
-            } ${onSeekClick ? "cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800" : ""}`}
+            className={`relative border border-zinc-300 px-0.5 text-center font-medium dark:border-zinc-700 ${
+              dayTodayBg ? TODAY_COL_BG : "bg-zinc-50 dark:bg-zinc-900"
+            } ${useStackedHeader ? "py-1 text-xs" : "py-2 text-xs"} ${
+              onSeekClick
+                ? "cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                : ""
+            }`}
             style={{ minWidth: width, width }}
             onClick={
               onSeekClick
@@ -173,8 +192,18 @@ export default function TimelineHeader({
                 : undefined
             }
           >
+            {todayBand ? (
+              <span
+                aria-hidden
+                className={`pointer-events-none absolute inset-y-0 ${TODAY_BAND_BG}`}
+                style={{
+                  left: `${todayBand.leftFrac * 100}%`,
+                  width: `${todayBand.widthFrac * 100}%`,
+                }}
+              />
+            ) : null}
             {isDayView ? (
-              <div className="flex flex-col overflow-hidden">
+              <div className="relative flex flex-col overflow-hidden">
                 <div className="flex items-center justify-center gap-0.5 leading-tight">
                   {canExpandEarly || canCollapseEarly ? (
                     <button
@@ -219,12 +248,12 @@ export default function TimelineHeader({
                 ) : null}
               </div>
             ) : showWeekTicks ? (
-              <div className="flex flex-col overflow-hidden">
+              <div className="relative flex flex-col overflow-hidden">
                 <span className="leading-tight">{col.label}</span>
                 <WeekDayTicks startDate={col.startDate} />
               </div>
             ) : showMonthTicks ? (
-              <div className="flex flex-col overflow-hidden">
+              <div className="relative flex flex-col overflow-hidden">
                 <span className="leading-tight">{col.label}</span>
                 <MonthSubTicks
                   startDate={col.startDate}
@@ -233,7 +262,7 @@ export default function TimelineHeader({
                 />
               </div>
             ) : (
-              col.label
+              <span className="relative">{col.label}</span>
             )}
           </th>
         );

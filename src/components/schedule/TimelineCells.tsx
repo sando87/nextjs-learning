@@ -13,6 +13,10 @@ import {
   previewToSegment,
 } from "@/lib/schedule/work-log-bar-placements";
 import {
+  columnContainsDate,
+  todayBandInColumn,
+} from "@/lib/schedule/timeline-today";
+import {
   getDayHourTickStep,
   getDayHourTicksVisible,
   getMonthTickMode,
@@ -28,11 +32,16 @@ type TimelineCellsProps = {
   columns: TimelineColumn[];
   columnWidth: number;
   viewMode: ViewMode;
+  /** YYYY-MM-DD — 해당 일 포함 열 배경 강조 */
+  today: string;
   dayLayouts?: DayColumnLayout[];
   sessionExpands?: Record<string, { early: boolean; late: boolean }>;
   /** Replay 등: 드래그/생성 비활성 */
   readOnly?: boolean;
 };
+
+const TODAY_COL_BG = "bg-rose-50/70 dark:bg-rose-950/35";
+const TODAY_BAND_BG = "bg-rose-200/80 dark:bg-rose-800/45";
 
 type NoteTarget = {
   workLog: WorkLog;
@@ -123,6 +132,7 @@ export default function TimelineCells({
   columns,
   columnWidth,
   viewMode,
+  today,
   dayLayouts,
   sessionExpands = {},
   readOnly = false,
@@ -277,12 +287,28 @@ export default function TimelineCells({
             getDayHourTicksVisible(columnWidth, headerExpanded);
           const monthMode =
             viewMode === "month" ? getMonthTickMode(columnWidth) : "none";
+          const isTodayCol = columnContainsDate(col, today);
+          const todayBand =
+            isTodayCol && !isDayView ? todayBandInColumn(col, today) : null;
+          const dayTodayBg = isDayView && isTodayCol;
           return (
             <div
               key={col.key}
-              className="relative h-full shrink-0 border-r border-zinc-300 last:border-r-0 dark:border-zinc-700"
+              className={`relative h-full shrink-0 border-r border-zinc-300 last:border-r-0 dark:border-zinc-700 ${
+                dayTodayBg ? TODAY_COL_BG : ""
+              }`}
               style={{ width }}
             >
+              {todayBand ? (
+                <div
+                  aria-hidden
+                  className={`pointer-events-none absolute inset-y-0 ${TODAY_BAND_BG}`}
+                  style={{
+                    left: `${todayBand.leftFrac * 100}%`,
+                    width: `${todayBand.widthFrac * 100}%`,
+                  }}
+                />
+              ) : null}
               {showDayGuides ? (
                 <DayColumnGuides
                   startHour={layout.startHour}

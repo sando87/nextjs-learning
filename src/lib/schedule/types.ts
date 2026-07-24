@@ -86,6 +86,8 @@ export type Task = {
   sortOrder: number;
   parentId: string | null;
   createdAt: string;
+  /** ISO timestamptz — 완료 업무 차트 윈도우 필터 기준 */
+  updatedAt: string;
   tags: Tag[];
   workLogs: WorkLog[];
 };
