@@ -152,12 +152,9 @@ export function getDayHourTickStep(columnWidth: number): 1 | 3 {
   return 3;
 }
 
-/** 최대 줌 아웃에서는 숨김. 헤더로 이른/야근 확장한 날은 예외로 표시 */
-export function getDayHourTicksVisible(
-  dayColumnWidth: number,
-  headerExpanded = false,
-): boolean {
-  return dayColumnWidth > 72 || headerExpanded;
+/** 최대 줌 아웃에서는 시 눈금 숨김 */
+export function getDayHourTicksVisible(dayColumnWidth: number): boolean {
+  return dayColumnWidth > 72;
 }
 
 /** 주 셀이 충분히 넓을 때만 하단 요일 날짜 눈금 표시 */

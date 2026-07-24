@@ -1,7 +1,21 @@
 import type { DayColumnLayout } from "./day-workday-layout";
-import { dayHourToPixel } from "./day-workday-layout";
+import {
+  dayHourToPixel,
+  hourToVisibleDayFrac,
+  resolveBaseDayHours,
+} from "./day-workday-layout";
 import { slotToPixelWithLayouts } from "./work-log-timeline-utils";
 import type { TimelineColumn, ViewMode, WorkLog } from "./types";
+import {
+  DEFAULT_WORKDAY_END_HOUR,
+  DEFAULT_WORKDAY_START_HOUR,
+} from "./types";
+
+export type DayHoursOptions = {
+  workdayStartHour?: number;
+  workdayEndHour?: number;
+  showFullDayHours?: boolean;
+};
 
 function parseDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -31,6 +45,16 @@ function parseDateTime(value: string): Date {
   const [y, m, d] = datePart.split("-").map(Number);
   const [hh, mm = "0", ss = "0"] = timePart.split(":");
   return new Date(y, m - 1, d, Number(hh), Number(mm), Number(ss));
+}
+
+/** 시각 → 하루 안 소수 시 (분·초 반영) */
+function dateToHourOfDay(dt: Date): number {
+  return (
+    dt.getHours() +
+    dt.getMinutes() / 60 +
+    dt.getSeconds() / 3600 +
+    dt.getMilliseconds() / 3_600_000
+  );
 }
 
 export type WorkLogBarSegment = {
@@ -109,8 +133,9 @@ function weekViewSegments(
   log: WorkLog,
   columns: TimelineColumn[],
   columnWidth: number,
+  dayHours: { startHour: number; endHour: number },
 ): WorkLogBarSegment[] {
-  return continuousRangeSegments(log, columns, columnWidth, (col) => {
+  return continuousRangeSegments(log, columns, columnWidth, dayHours, (col) => {
     const start = parseDate(col.startDate);
     const endExclusive = addDays(parseDate(col.endDate), 1);
     return { start, endExclusive };
@@ -122,29 +147,66 @@ function monthViewSegments(
   log: WorkLog,
   columns: TimelineColumn[],
   columnWidth: number,
+  dayHours: { startHour: number; endHour: number },
 ): WorkLogBarSegment[] {
-  return continuousRangeSegments(log, columns, columnWidth, (col) => {
+  return continuousRangeSegments(log, columns, columnWidth, dayHours, (col) => {
     const start = parseDate(col.startDate);
     const endExclusive = addDays(parseDate(col.endDate), 1);
     return { start, endExclusive };
   });
 }
 
+/**
+ * 컬럼 구간 안 datetime → 픽셀.
+ * 날짜 칸 폭은 달력 일수 기준, 칸 안에서는 표시 시간대(근무/전체)로 매핑.
+ */
+function dateTimeToPixelInRange(
+  dt: Date,
+  colIndex: number,
+  columnWidth: number,
+  rangeStart: Date,
+  rangeEndExclusive: Date,
+  dayHours: { startHour: number; endHour: number },
+): number | null {
+  if (dt < rangeStart || dt >= rangeEndExclusive) return null;
+
+  const totalDays = Math.round(
+    (rangeEndExclusive.getTime() - rangeStart.getTime()) / 86_400_000,
+  );
+  if (totalDays <= 0) return null;
+
+  const dayStart = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  const dayIndex = Math.round(
+    (dayStart.getTime() - rangeStart.getTime()) / 86_400_000,
+  );
+  const fracInDay = hourToVisibleDayFrac(
+    dateToHourOfDay(dt),
+    dayHours.startHour,
+    dayHours.endHour,
+  );
+  const frac = (dayIndex + fracInDay) / totalDays;
+  return colIndex * columnWidth + frac * columnWidth;
+}
+
 function continuousRangeSegments(
   log: WorkLog,
   columns: TimelineColumn[],
   columnWidth: number,
+  dayHours: { startHour: number; endHour: number },
   rangeOf: (col: TimelineColumn) => { start: Date; endExclusive: Date },
 ): WorkLogBarSegment[] {
   function dateTimeToPixel(dt: Date): number | null {
     for (let i = 0; i < columns.length; i++) {
       const { start, endExclusive } = rangeOf(columns[i]);
-      const spanMs = endExclusive.getTime() - start.getTime();
-      if (spanMs <= 0) continue;
-      if (dt >= start && dt < endExclusive) {
-        const frac = (dt.getTime() - start.getTime()) / spanMs;
-        return i * columnWidth + frac * columnWidth;
-      }
+      const px = dateTimeToPixelInRange(
+        dt,
+        i,
+        columnWidth,
+        start,
+        endExclusive,
+        dayHours,
+      );
+      if (px != null) return px;
     }
     return null;
   }
@@ -197,17 +259,24 @@ export function getWorkLogBarSegments(
   columns: TimelineColumn[],
   columnWidth: number,
   dayLayouts?: DayColumnLayout[],
+  dayHoursOptions?: DayHoursOptions,
 ): WorkLogBarSegment[] {
   if (columns.length === 0) return [];
+
+  const dayHours = resolveBaseDayHours(
+    dayHoursOptions?.workdayStartHour ?? DEFAULT_WORKDAY_START_HOUR,
+    dayHoursOptions?.workdayEndHour ?? DEFAULT_WORKDAY_END_HOUR,
+    dayHoursOptions?.showFullDayHours ?? false,
+  );
 
   if (viewMode === "day") {
     return dayViewSegments(log, columns, columnWidth, dayLayouts);
   }
   if (viewMode === "week") {
-    return weekViewSegments(log, columns, columnWidth);
+    return weekViewSegments(log, columns, columnWidth, dayHours);
   }
   if (viewMode === "month") {
-    return monthViewSegments(log, columns, columnWidth);
+    return monthViewSegments(log, columns, columnWidth, dayHours);
   }
   return [];
 }
@@ -218,9 +287,17 @@ export function getAllWorkLogBarSegments(
   columns: TimelineColumn[],
   columnWidth: number,
   dayLayouts?: DayColumnLayout[],
+  dayHoursOptions?: DayHoursOptions,
 ): WorkLogBarSegment[] {
   return workLogs.flatMap((log) =>
-    getWorkLogBarSegments(viewMode, log, columns, columnWidth, dayLayouts),
+    getWorkLogBarSegments(
+      viewMode,
+      log,
+      columns,
+      columnWidth,
+      dayLayouts,
+      dayHoursOptions,
+    ),
   );
 }
 

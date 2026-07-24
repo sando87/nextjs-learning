@@ -17,9 +17,9 @@ export type Project = {
   name: string;
   ownerId: string;
   startDate: string;
-  /** 일 뷰 기본 표시 시작 시 (0–23, half-open) */
+  /** 전체시간 off일 때 하루 표시 시작 시 (0–23, half-open) */
   workdayStartHour: number;
-  /** 일 뷰 기본 표시 종료 시 (1–24, half-open) */
+  /** 전체시간 off일 때 하루 표시 종료 시 (1–24, half-open) */
   workdayEndHour: number;
   createdAt: string;
 };

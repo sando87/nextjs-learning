@@ -19,11 +19,6 @@ type TimelineHeaderProps = {
   /** YYYY-MM-DD — 해당 일 포함 열 배경 강조 */
   today: string;
   dayLayouts?: DayColumnLayout[];
-  onExpandEarly?: (date: string) => void;
-  onExpandLate?: (date: string) => void;
-  onCollapseEarly?: (date: string) => void;
-  onCollapseLate?: (date: string) => void;
-  sessionExpands?: Record<string, { early: boolean; late: boolean }>;
   /** Replay: 헤더 클릭 시 해당 x로 시점 이동 */
   onSeekClick?: (clientX: number) => void;
 };
@@ -134,11 +129,6 @@ export default function TimelineHeader({
   viewMode,
   today,
   dayLayouts,
-  onExpandEarly,
-  onExpandLate,
-  onCollapseEarly,
-  onCollapseLate,
-  sessionExpands = {},
   onSeekClick,
 }: TimelineHeaderProps) {
   const isDayView = viewMode === "day";
@@ -155,16 +145,8 @@ export default function TimelineHeader({
         const width = isDayView && layout ? layout.width : columnWidth;
         const startHour = layout?.startHour ?? 0;
         const endHour = layout?.endHour ?? 24;
-        const session = sessionExpands[col.startDate];
-        const headerExpanded = Boolean(session?.early || session?.late);
         const showDayHourTicks =
-          isDayView && getDayHourTicksVisible(columnWidth, headerExpanded);
-        const canExpandEarly = isDayView && startHour > 0;
-        const canExpandLate = isDayView && endHour < 24;
-        const canCollapseEarly =
-          isDayView && Boolean(session?.early) && startHour === 0;
-        const canCollapseLate =
-          isDayView && Boolean(session?.late) && endHour === 24;
+          isDayView && getDayHourTicksVisible(columnWidth);
         const isTodayCol = columnContainsDate(col, today);
         const todayBand =
           isTodayCol && !isDayView ? todayBandInColumn(col, today) : null;
@@ -186,7 +168,6 @@ export default function TimelineHeader({
             onClick={
               onSeekClick
                 ? (e) => {
-                    if ((e.target as HTMLElement).closest("button")) return;
                     onSeekClick(e.clientX);
                   }
                 : undefined
@@ -204,41 +185,7 @@ export default function TimelineHeader({
             ) : null}
             {isDayView ? (
               <div className="relative flex flex-col overflow-hidden">
-                <div className="flex items-center justify-center gap-0.5 leading-tight">
-                  {canExpandEarly || canCollapseEarly ? (
-                    <button
-                      type="button"
-                      title={canCollapseEarly ? "이른 오전 접기" : "이른 오전(0시)까지 확장"}
-                      className="rounded px-0.5 text-[10px] text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                      onClick={() =>
-                        canCollapseEarly
-                          ? onCollapseEarly?.(col.startDate)
-                          : onExpandEarly?.(col.startDate)
-                      }
-                    >
-                      {canCollapseEarly ? "›" : "‹"}
-                    </button>
-                  ) : (
-                    <span className="w-3" />
-                  )}
-                  <span className="min-w-0 flex-1 truncate">{col.label}</span>
-                  {canExpandLate || canCollapseLate ? (
-                    <button
-                      type="button"
-                      title={canCollapseLate ? "야근 구간 접기" : "야근(24시)까지 확장"}
-                      className="rounded px-0.5 text-[10px] text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                      onClick={() =>
-                        canCollapseLate
-                          ? onCollapseLate?.(col.startDate)
-                          : onExpandLate?.(col.startDate)
-                      }
-                    >
-                      {canCollapseLate ? "‹" : "›"}
-                    </button>
-                  ) : (
-                    <span className="w-3" />
-                  )}
-                </div>
+                <span className="leading-tight truncate">{col.label}</span>
                 {showDayHourTicks ? (
                   <DayHourTicks
                     startHour={startHour}

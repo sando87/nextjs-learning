@@ -55,7 +55,6 @@ import {
 } from "@/lib/schedule/timeline-utils";
 import {
   buildDayColumnLayouts,
-  type DaySessionExpand,
 } from "@/lib/schedule/day-workday-layout";
 import {
   buildTaskTree,
@@ -166,10 +165,8 @@ export default function ScheduleBoard({
   const [parentOverrides, setParentOverrides] = useState<
     Record<string, string | null>
   >({});
-  /** 일 뷰: 헤더로 연 이른/야근 확장 (날짜 키) */
-  const [daySessionExpands, setDaySessionExpands] = useState<
-    Record<string, DaySessionExpand>
-  >({});
+  /** 전체시간 on: 0–24 / off: 프로젝트 근무시간대 (기본 off) */
+  const [showFullDayHours, setShowFullDayHours] = useState(false);
   const [isReplayMode, setIsReplayMode] = useState(false);
   const [viewModeBeforeReplay, setViewModeBeforeReplay] =
     useState<ViewMode | null>(null);
@@ -369,7 +366,7 @@ export default function ScheduleBoard({
       dayColumnWidth,
       project.workdayStartHour,
       project.workdayEndHour,
-      daySessionExpands,
+      showFullDayHours,
     );
   }, [
     viewMode,
@@ -378,8 +375,17 @@ export default function ScheduleBoard({
     dayColumnWidth,
     project.workdayStartHour,
     project.workdayEndHour,
-    daySessionExpands,
+    showFullDayHours,
   ]);
+
+  const dayHoursOptions = useMemo(
+    () => ({
+      workdayStartHour: project.workdayStartHour,
+      workdayEndHour: project.workdayEndHour,
+      showFullDayHours,
+    }),
+    [project.workdayStartHour, project.workdayEndHour, showFullDayHours],
+  );
 
   const columnWidth = effectiveColumnWidth;
   const canReorder = !isReplayMode && !isHierarchy && sortKey === "sortOrder";
@@ -660,21 +666,6 @@ export default function ScheduleBoard({
     didInitialTodayScrollRef.current = true;
   }, [columns, dayLayouts, scrollToTodayDefault]);
 
-  const patchDayExpand = useCallback(
-    (date: string, patch: Partial<DaySessionExpand>) => {
-      setDaySessionExpands((prev) => {
-        const current = prev[date] ?? { early: false, late: false };
-        const next = { ...current, ...patch };
-        if (!next.early && !next.late) {
-          const { [date]: _, ...rest } = prev;
-          return rest;
-        }
-        return { ...prev, [date]: next };
-      });
-    },
-    [],
-  );
-
   return (
     <WorkLogSelectionProvider>
     <div className="flex flex-col gap-4">
@@ -687,6 +678,7 @@ export default function ScheduleBoard({
         members={members}
         tags={tags}
         isReplayMode={isReplayMode}
+        showFullDayHours={showFullDayHours}
         onViewModeChange={(mode) => {
           if (isReplayMode) return;
           setViewMode(mode);
@@ -718,6 +710,7 @@ export default function ScheduleBoard({
         onScrollToToday={scrollToTodayDefault}
         onExtendPast={extendPastColumns}
         onExtendFuture={extendFutureColumns}
+        onShowFullDayHoursChange={setShowFullDayHours}
         onReplayModeChange={(enabled) => {
           if (enabled) {
             setViewModeBeforeReplay(viewMode);
@@ -791,17 +784,6 @@ export default function ScheduleBoard({
                 viewMode={viewMode}
                 today={today}
                 dayLayouts={dayLayouts}
-                sessionExpands={daySessionExpands}
-                onExpandEarly={(date) =>
-                  patchDayExpand(date, { early: true })
-                }
-                onExpandLate={(date) => patchDayExpand(date, { late: true })}
-                onCollapseEarly={(date) =>
-                  patchDayExpand(date, { early: false })
-                }
-                onCollapseLate={(date) =>
-                  patchDayExpand(date, { late: false })
-                }
                 onSeekClick={
                   isReplayMode
                     ? (clientX) => {
@@ -963,7 +945,7 @@ export default function ScheduleBoard({
                       viewMode={viewMode}
                       today={today}
                       dayLayouts={dayLayouts}
-                      sessionExpands={daySessionExpands}
+                      dayHoursOptions={dayHoursOptions}
                       readOnly={isReplayMode}
                     />
                   </tr>

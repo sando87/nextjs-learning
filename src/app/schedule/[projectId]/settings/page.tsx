@@ -100,8 +100,8 @@ export default async function ProjectSettingsPage({ params }: SettingsPageProps)
             </label>
           </div>
           <p className="text-xs text-zinc-500">
-            일 뷰에서 기본으로 보이는 시간 구간입니다. 시작 시가 종료 시보다
-            앞서야 합니다.
+            전체시간 버튼이 꺼져 있을 때 일/주/월 뷰에서 하루를 표시하는
+            시간 구간입니다. 시작 시가 종료 시보다 앞서야 합니다.
           </p>
           <button
             type="submit"

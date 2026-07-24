@@ -9,6 +9,7 @@ import type { DayColumnLayout } from "@/lib/schedule/day-workday-layout";
 import { totalDayLayoutsWidth } from "@/lib/schedule/day-workday-layout";
 import { getPlanBarPlacement } from "@/lib/schedule/plan-bar-placements";
 import {
+  type DayHoursOptions,
   getWorkLogBarSegments,
   previewToSegment,
 } from "@/lib/schedule/work-log-bar-placements";
@@ -37,7 +38,7 @@ type TimelineCellsProps = {
   /** YYYY-MM-DD — 해당 일 포함 열 배경 강조 */
   today: string;
   dayLayouts?: DayColumnLayout[];
-  sessionExpands?: Record<string, { early: boolean; late: boolean }>;
+  dayHoursOptions?: DayHoursOptions;
   /** Replay 등: 드래그/생성 비활성 */
   readOnly?: boolean;
 };
@@ -122,7 +123,7 @@ export default function TimelineCells({
   viewMode,
   today,
   dayLayouts,
-  sessionExpands = {},
+  dayHoursOptions,
   readOnly = false,
 }: TimelineCellsProps) {
   const isDayView = viewMode === "day";
@@ -344,9 +345,18 @@ export default function TimelineCells({
           columns,
           columnWidth,
           isDayView ? dayLayouts : undefined,
+          dayHoursOptions,
         ),
       ),
-    [task.workLogs, viewMode, columns, columnWidth, isDayView, dayLayouts],
+    [
+      task.workLogs,
+      viewMode,
+      columns,
+      columnWidth,
+      isDayView,
+      dayLayouts,
+      dayHoursOptions,
+    ],
   );
 
   const planPlacement = useMemo(
@@ -408,12 +418,8 @@ export default function TimelineCells({
         {columns.map((col, index) => {
           const layout = dayLayouts?.[index];
           const width = isDayView && layout ? layout.width : columnWidth;
-          const session = sessionExpands[col.startDate];
-          const headerExpanded = Boolean(session?.early || session?.late);
           const showDayGuides =
-            isDayView &&
-            layout &&
-            getDayHourTicksVisible(columnWidth, headerExpanded);
+            isDayView && layout && getDayHourTicksVisible(columnWidth);
           const monthMode =
             viewMode === "month" ? getMonthTickMode(columnWidth) : "none";
           const isTodayCol = columnContainsDate(col, today);
@@ -438,7 +444,7 @@ export default function TimelineCells({
                   }}
                 />
               ) : null}
-              {showDayGuides ? (
+              {showDayGuides && layout ? (
                 <DayColumnGuides
                   startHour={layout.startHour}
                   endHour={layout.endHour}

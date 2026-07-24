@@ -4,13 +4,6 @@ import {
   DEFAULT_WORKDAY_START_HOUR,
 } from "./types";
 
-export type DaySessionExpand = {
-  /** 헤더로 0시까지 확장 */
-  early: boolean;
-  /** 헤더로 24시까지 확장 */
-  late: boolean;
-};
-
 export type DayColumnLayout = {
   date: string;
   startHour: number;
@@ -18,6 +11,18 @@ export type DayColumnLayout = {
   width: number;
   offset: number;
 };
+
+/** 버튼/설정 기준 하루 표시 시 구간 (half-open) */
+export function resolveBaseDayHours(
+  workdayStartHour: number,
+  workdayEndHour: number,
+  showFullDayHours: boolean,
+): { startHour: number; endHour: number } {
+  if (showFullDayHours) return { startHour: 0, endHour: 24 };
+  const start = Math.max(0, Math.min(23, workdayStartHour));
+  const end = Math.max(start + 1, Math.min(24, workdayEndHour));
+  return { startHour: start, endHour: end };
+}
 
 function addDaysStr(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -52,13 +57,19 @@ export function workLogHoursOnDay(
   return { startHour, endHour };
 }
 
+/**
+ * 일 뷰 컬럼 표시 구간.
+ * 전체시간 on → 0–24 / off → 프로젝트 근무시간 + 해당일 로그로 자동 확장
+ */
 export function resolveDayVisibleRange(
   date: string,
   workLogs: WorkLog[],
   workdayStartHour: number,
   workdayEndHour: number,
-  session?: DaySessionExpand,
+  showFullDayHours = false,
 ): { startHour: number; endHour: number } {
+  if (showFullDayHours) return { startHour: 0, endHour: 24 };
+
   let start = workdayStartHour;
   let end = workdayEndHour;
 
@@ -68,9 +79,6 @@ export function resolveDayVisibleRange(
     start = Math.min(start, covered.startHour);
     end = Math.max(end, covered.endHour);
   }
-
-  if (session?.early) start = 0;
-  if (session?.late) end = 24;
 
   start = Math.max(0, Math.min(23, start));
   end = Math.max(start + 1, Math.min(24, end));
@@ -93,12 +101,18 @@ export function buildDayColumnLayouts(
   dayColumnWidth: number,
   workdayStartHour = DEFAULT_WORKDAY_START_HOUR,
   workdayEndHour = DEFAULT_WORKDAY_END_HOUR,
-  sessionExpands: Record<string, DaySessionExpand> = {},
+  showFullDayHours = false,
 ): DayColumnLayout[] {
-  const hourPx = hourPxFromDayColumnWidth(
-    dayColumnWidth,
+  const base = resolveBaseDayHours(
     workdayStartHour,
     workdayEndHour,
+    showFullDayHours,
+  );
+  // 줌 기준 너비는 프로젝트 근무시간(또는 전체시간) 스팬에 맞춤
+  const hourPx = hourPxFromDayColumnWidth(
+    dayColumnWidth,
+    base.startHour,
+    base.endHour,
   );
 
   let offset = 0;
@@ -109,7 +123,7 @@ export function buildDayColumnLayouts(
       workLogs,
       workdayStartHour,
       workdayEndHour,
-      sessionExpands[date],
+      showFullDayHours,
     );
     const span = endHour - startHour;
     const width = hourPx * span;
@@ -154,4 +168,17 @@ export function dayHourToPixel(
   if (span <= 0) return layout.offset;
   const clamped = Math.max(layout.startHour, Math.min(layout.endHour, hour));
   return layout.offset + ((clamped - layout.startHour) / span) * layout.width;
+}
+
+/**
+ * 하루 안 시각(0–24, 소수 가능) → 표시 구간 기준 비율 [0,1].
+ * 주/월 뷰에서 날짜 칸 안 위치를 잡을 때 사용.
+ */
+export function hourToVisibleDayFrac(
+  hour: number,
+  startHour: number,
+  endHour: number,
+): number {
+  const span = Math.max(1, endHour - startHour);
+  return Math.max(0, Math.min(1, (hour - startHour) / span));
 }

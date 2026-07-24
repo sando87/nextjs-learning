@@ -19,6 +19,7 @@ type ScheduleToolbarProps = {
   members: ProjectMember[];
   tags: Tag[];
   isReplayMode: boolean;
+  showFullDayHours: boolean;
   onViewModeChange: (mode: ViewMode) => void;
   onBoardLayoutChange: (layout: BoardLayout) => void;
   onSortChange: (key: SortKey) => void;
@@ -26,6 +27,7 @@ type ScheduleToolbarProps = {
   onFilterChange: (filters: BoardFilters) => void;
   onAddTask: () => void;
   onReplayModeChange: (enabled: boolean) => void;
+  onShowFullDayHoursChange: (enabled: boolean) => void;
   /** 오늘을 틀고정 우측 기준 위치로 스크롤 */
   onScrollToToday?: () => void;
   /** 과거 날짜 컬럼 7칸 추가 */
@@ -62,6 +64,7 @@ export default function ScheduleToolbar({
   members,
   tags,
   isReplayMode,
+  showFullDayHours,
   onViewModeChange,
   onBoardLayoutChange,
   onSortChange,
@@ -69,6 +72,7 @@ export default function ScheduleToolbar({
   onFilterChange,
   onAddTask,
   onReplayModeChange,
+  onShowFullDayHoursChange,
   onScrollToToday,
   onExtendPast,
   onExtendFuture,
@@ -153,6 +157,23 @@ export default function ScheduleToolbar({
           ) : null}
         </div>
       ) : null}
+
+      <button
+        type="button"
+        onClick={() => onShowFullDayHoursChange(!showFullDayHours)}
+        title={
+          showFullDayHours
+            ? "전체시간(0시~24시) 표시 중 — 클릭하면 프로젝트 근무시간대로"
+            : "프로젝트 근무시간대 표시 중 — 클릭하면 전체시간(0시~24시)"
+        }
+        className={`rounded border px-3 py-1.5 text-sm ${
+          showFullDayHours
+            ? "border-zinc-950 bg-zinc-950 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-950"
+            : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+        }`}
+      >
+        전체시간
+      </button>
 
       <button
         type="button"
