@@ -30,6 +30,8 @@ type TaskMetaCellsProps = {
   onDragHandleStart?: () => void;
   onDragHandleEnd?: () => void;
   onNestPointerDown?: (e: ReactPointerEvent) => void;
+  /** Replay: 제어 컴포넌트로 상태 반영, 편집 비활성 */
+  readOnly?: boolean;
 };
 
 const cellClass =
@@ -53,6 +55,7 @@ export default function TaskMetaCells({
   onDragHandleStart,
   onDragHandleEnd,
   onNestPointerDown,
+  readOnly = false,
 }: TaskMetaCellsProps) {
   const dropLine =
     showDropIndicatorAbove && showDropIndicatorBelow
@@ -123,11 +126,18 @@ export default function TaskMetaCells({
           <button
             type="button"
             title={isNest ? dragTitle : undefined}
+            disabled={readOnly}
             onPointerDown={
-              isNest ? (e) => onNestPointerDown?.(e) : undefined
+              isNest && !readOnly
+                ? (e) => onNestPointerDown?.(e)
+                : undefined
             }
-            onClick={() => onEdit(task)}
+            onClick={() => {
+              if (readOnly) return;
+              onEdit(task);
+            }}
             onDoubleClick={() => {
+              if (readOnly) return;
               const next = prompt("업무 이름", task.title);
               if (next === null) return;
               const fd = new FormData();
@@ -137,7 +147,7 @@ export default function TaskMetaCells({
               fd.set("value", next);
               void quickUpdateTaskAction(fd);
             }}
-            className={`min-w-0 flex-1 text-left font-medium hover:underline ${isNest
+            className={`min-w-0 flex-1 text-left font-medium hover:underline disabled:cursor-default disabled:no-underline ${isNest
               ? "cursor-grab touch-none select-none active:cursor-grabbing"
               : ""
               }`}
@@ -150,8 +160,11 @@ export default function TaskMetaCells({
       {visibleColumns.worker ? (
         <td className={`${cellClass} min-w-[100px]`}>
           <select
-            defaultValue={task.assigneeId ?? ""}
+            {...(readOnly
+              ? { value: task.assigneeId ?? "", disabled: true }
+              : { defaultValue: task.assigneeId ?? "" })}
             onChange={(e) => {
+              if (readOnly) return;
               const fd = new FormData();
               fd.set("projectId", projectId);
               fd.set("taskId", task.id);
@@ -159,7 +172,7 @@ export default function TaskMetaCells({
               fd.set("value", e.target.value);
               void quickUpdateTaskAction(fd);
             }}
-            className="w-full bg-transparent text-xs outline-none"
+            className="w-full bg-transparent text-xs outline-none disabled:cursor-default disabled:opacity-100"
           >
             <option value="">-</option>
             {members.map((m) => (
@@ -174,8 +187,11 @@ export default function TaskMetaCells({
       {visibleColumns.state ? (
         <td className={`${cellClass} min-w-[80px]`}>
           <select
-            defaultValue={task.status}
+            {...(readOnly
+              ? { value: task.status, disabled: true }
+              : { defaultValue: task.status })}
             onChange={(e) => {
+              if (readOnly) return;
               const fd = new FormData();
               fd.set("projectId", projectId);
               fd.set("taskId", task.id);
@@ -183,7 +199,7 @@ export default function TaskMetaCells({
               fd.set("value", e.target.value);
               void quickUpdateTaskAction(fd);
             }}
-            className="w-full bg-transparent text-xs outline-none"
+            className="w-full bg-transparent text-xs outline-none disabled:cursor-default disabled:opacity-100"
           >
             {TASK_STATUSES.map((s) => (
               <option key={s} value={s}>

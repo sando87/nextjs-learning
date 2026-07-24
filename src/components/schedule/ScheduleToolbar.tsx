@@ -18,12 +18,14 @@ type ScheduleToolbarProps = {
   filters: BoardFilters;
   members: ProjectMember[];
   tags: Tag[];
+  isReplayMode: boolean;
   onViewModeChange: (mode: ViewMode) => void;
   onBoardLayoutChange: (layout: BoardLayout) => void;
   onSortChange: (key: SortKey) => void;
   onColumnToggle: (key: ColumnKey) => void;
   onFilterChange: (filters: BoardFilters) => void;
   onAddTask: () => void;
+  onReplayModeChange: (enabled: boolean) => void;
 };
 
 const VIEW_OPTIONS: { value: ViewMode; label: string }[] = [
@@ -53,12 +55,14 @@ export default function ScheduleToolbar({
   filters,
   members,
   tags,
+  isReplayMode,
   onViewModeChange,
   onBoardLayoutChange,
   onSortChange,
   onColumnToggle,
   onFilterChange,
   onAddTask,
+  onReplayModeChange,
 }: ScheduleToolbarProps) {
   const isHierarchy = boardLayout === "hierarchy";
 
@@ -69,8 +73,9 @@ export default function ScheduleToolbar({
           <button
             key={opt.value}
             type="button"
+            disabled={isReplayMode}
             onClick={() => onBoardLayoutChange(opt.value)}
-            className={`px-3 py-1.5 text-sm ${
+            className={`px-3 py-1.5 text-sm disabled:opacity-40 ${
               boardLayout === opt.value
                 ? "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950"
                 : "text-zinc-600 dark:text-zinc-400"
@@ -86,8 +91,9 @@ export default function ScheduleToolbar({
           <button
             key={opt.value}
             type="button"
+            disabled={isReplayMode}
             onClick={() => onViewModeChange(opt.value)}
-            className={`px-3 py-1.5 text-sm ${
+            className={`px-3 py-1.5 text-sm disabled:opacity-40 ${
               viewMode === opt.value
                 ? "bg-zinc-950 text-white dark:bg-zinc-50 dark:text-zinc-950"
                 : "text-zinc-600 dark:text-zinc-400"
@@ -97,6 +103,18 @@ export default function ScheduleToolbar({
           </button>
         ))}
       </div>
+
+      <button
+        type="button"
+        onClick={() => onReplayModeChange(!isReplayMode)}
+        className={`rounded border px-3 py-1.5 text-sm ${
+          isReplayMode
+            ? "border-rose-500 bg-rose-500 text-white"
+            : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+        }`}
+      >
+        Replay
+      </button>
 
       <FilterPanel
         filters={filters}
@@ -110,7 +128,7 @@ export default function ScheduleToolbar({
         onToggle={onColumnToggle}
       />
 
-      {!isHierarchy ? (
+      {!isHierarchy && !isReplayMode ? (
         <select
           value={sortKey}
           onChange={(e) => onSortChange(e.target.value as SortKey)}
@@ -124,13 +142,19 @@ export default function ScheduleToolbar({
         </select>
       ) : null}
 
-      <button
-        type="button"
-        onClick={onAddTask}
-        className="ml-auto rounded-full bg-zinc-950 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-950"
-      >
-        + 업무 추가
-      </button>
+      {!isReplayMode ? (
+        <button
+          type="button"
+          onClick={onAddTask}
+          className="ml-auto rounded-full bg-zinc-950 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-950"
+        >
+          + 업무 추가
+        </button>
+      ) : (
+        <span className="ml-auto text-xs text-zinc-500">
+          주간 변경 이력 재생 중 · 편집 잠금
+        </span>
+      )}
     </div>
   );
 }

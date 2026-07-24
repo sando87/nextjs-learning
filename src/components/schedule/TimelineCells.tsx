@@ -30,6 +30,8 @@ type TimelineCellsProps = {
   viewMode: ViewMode;
   dayLayouts?: DayColumnLayout[];
   sessionExpands?: Record<string, { early: boolean; late: boolean }>;
+  /** Replay 등: 드래그/생성 비활성 */
+  readOnly?: boolean;
 };
 
 type NoteTarget = {
@@ -123,16 +125,17 @@ export default function TimelineCells({
   viewMode,
   dayLayouts,
   sessionExpands = {},
+  readOnly = false,
 }: TimelineCellsProps) {
   const isDayView = viewMode === "day";
   const totalWidth =
     isDayView && dayLayouts
       ? totalDayLayoutsWidth(dayLayouts)
       : columns.length * columnWidth;
-  const isWorkLogEditable = viewMode === "day";
+  const isWorkLogEditable = !readOnly && viewMode === "day";
   const isMemoView = isWorkLogEditable;
-  const isPlanEditable = viewMode === "week" || viewMode === "month";
-  const showPlan = isPlanEditable;
+  const isPlanEditable = !readOnly && (viewMode === "week" || viewMode === "month");
+  const showPlan = viewMode === "week" || viewMode === "month";
   const [noteTarget, setNoteTarget] = useState<NoteTarget | null>(null);
 
   const handleBarClick = useCallback(

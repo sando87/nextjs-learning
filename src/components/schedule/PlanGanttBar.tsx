@@ -30,7 +30,7 @@ export default function PlanGanttBar({
 }: PlanGanttBarProps) {
   return (
     <div
-      className={`absolute top-1 z-[1] h-2 ${isPreview ? "opacity-60" : ""}`}
+      className={`absolute top-1 z-[1] h-2 transition-[left,width] duration-300 ease-out ${isPreview ? "opacity-60" : ""}`}
       style={{ left, width: Math.max(width, 3) }}
       title={title}
       onPointerDown={(e) => {

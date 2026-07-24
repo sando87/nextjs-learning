@@ -28,8 +28,10 @@ import {
   deleteWorkLog,
   updateWorkLog,
 } from "@/lib/schedule/work-logs-store";
+import { getScheduleChangeEvents } from "@/lib/schedule/schedule-change-events-store";
 import {
   TASK_STATUSES,
+  type ScheduleChangeEvent,
   type TaskStatus,
 } from "@/lib/schedule/types";
 
@@ -583,6 +585,33 @@ export async function deleteWorkLogAction(
       ok: false,
       error:
         error instanceof Error ? error.message : "작업시간 삭제에 실패했습니다",
+    };
+  }
+}
+
+export async function getScheduleChangeEventsAction(
+  projectId: string,
+  fromIso: string,
+  toIso: string,
+): Promise<{ ok: true; events: ScheduleChangeEvent[] } | { ok: false; error: string }> {
+  const user = await requireUser();
+  if (!user) redirect("/login");
+
+  const isMember = await requireProjectMember(projectId, user.id);
+  if (!isMember) {
+    return { ok: false, error: "프로젝트 멤버만 변경 이력을 볼 수 있습니다" };
+  }
+
+  try {
+    const events = await getScheduleChangeEvents(projectId, fromIso, toIso);
+    return { ok: true, events };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "변경 이력을 불러오지 못했습니다",
     };
   }
 }

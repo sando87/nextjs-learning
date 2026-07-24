@@ -18,6 +18,8 @@ type TimelineHeaderProps = {
   onCollapseEarly?: (date: string) => void;
   onCollapseLate?: (date: string) => void;
   sessionExpands?: Record<string, { early: boolean; late: boolean }>;
+  /** Replay: 헤더 클릭 시 해당 x로 시점 이동 */
+  onSeekClick?: (clientX: number) => void;
 };
 
 function DayHourTicks({
@@ -127,6 +129,7 @@ export default function TimelineHeader({
   onCollapseEarly,
   onCollapseLate,
   sessionExpands = {},
+  onSeekClick,
 }: TimelineHeaderProps) {
   const isDayView = viewMode === "day";
   const isWeekView = viewMode === "week";
@@ -159,8 +162,16 @@ export default function TimelineHeader({
             data-timeline-zoom
             className={`border border-zinc-300 bg-zinc-50 px-0.5 text-center font-medium dark:border-zinc-700 dark:bg-zinc-900 ${
               useStackedHeader ? "py-1 text-xs" : "py-2 text-xs"
-            }`}
+            } ${onSeekClick ? "cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800" : ""}`}
             style={{ minWidth: width, width }}
+            onClick={
+              onSeekClick
+                ? (e) => {
+                    if ((e.target as HTMLElement).closest("button")) return;
+                    onSeekClick(e.clientX);
+                  }
+                : undefined
+            }
           >
             {isDayView ? (
               <div className="flex flex-col overflow-hidden">

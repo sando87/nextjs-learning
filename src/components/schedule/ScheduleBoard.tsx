@@ -4,6 +4,8 @@ import {
   reorderTaskAction,
   setTaskParentAction,
 } from "@/app/schedule/actions";
+import ReplayControls from "@/components/schedule/ReplayControls";
+import ReplayPlayhead from "@/components/schedule/ReplayPlayhead";
 import ScheduleToolbar from "@/components/schedule/ScheduleToolbar";
 import TaskForm from "@/components/schedule/TaskForm";
 import TaskMetaCells from "@/components/schedule/TaskMetaCells";
@@ -38,6 +40,7 @@ import {
   type ColumnKey,
   type SortKey,
 } from "@/components/schedule/schedule-board-state";
+import { useScheduleReplay } from "@/components/schedule/use-schedule-replay";
 import { generateTimelineColumns } from "@/lib/schedule/timeline-utils";
 import {
   buildDayColumnLayouts,
@@ -146,6 +149,11 @@ export default function ScheduleBoard({
   const [daySessionExpands, setDaySessionExpands] = useState<
     Record<string, DaySessionExpand>
   >({});
+  const [isReplayMode, setIsReplayMode] = useState(false);
+  const [viewModeBeforeReplay, setViewModeBeforeReplay] =
+    useState<ViewMode | null>(null);
+  const [replaySessionId, setReplaySessionId] = useState(0);
+  const [measuredPlayheadBase, setMeasuredPlayheadBase] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** Board reorder용 — React dragend/drop 순서 이슈 대비 */
   const draggingIdRef = useRef<string | null>(null);
@@ -234,9 +242,29 @@ export default function ScheduleBoard({
     [viewMode, project.startDate, tasks],
   );
 
+  const effectiveColumnWidth =
+    viewMode === "day"
+      ? dayColumnWidth
+      : viewMode === "week"
+        ? weekColumnWidth
+        : viewMode === "month"
+          ? monthColumnWidth
+          : COLUMN_WIDTH;
+
+  const replay = useScheduleReplay({
+    enabled: isReplayMode && viewMode === "week",
+    projectId: project.id,
+    columns,
+    tasks: tasksWithParents,
+    columnWidth: effectiveColumnWidth,
+    sessionId: replaySessionId,
+  });
+
+  const displayTasks = isReplayMode ? replay.replayedTasks : tasksWithParents;
+
   const allWorkLogs = useMemo(
-    () => tasks.flatMap((t) => t.workLogs),
-    [tasks],
+    () => displayTasks.flatMap((t) => t.workLogs),
+    [displayTasks],
   );
 
   const dayLayouts = useMemo(() => {
@@ -259,30 +287,23 @@ export default function ScheduleBoard({
     daySessionExpands,
   ]);
 
-  const columnWidth =
-    viewMode === "day"
-      ? dayColumnWidth
-      : viewMode === "week"
-        ? weekColumnWidth
-        : viewMode === "month"
-          ? monthColumnWidth
-          : COLUMN_WIDTH;
-  const canReorder = !isHierarchy && sortKey === "sortOrder";
+  const columnWidth = effectiveColumnWidth;
+  const canReorder = !isReplayMode && !isHierarchy && sortKey === "sortOrder";
   const isZoomableView =
     viewMode === "day" || viewMode === "week" || viewMode === "month";
 
   const boardVisibleTasks = useMemo(
-    () => sortTasks(applyFilters(tasks, filters), sortKey),
-    [tasks, filters, sortKey],
+    () => sortTasks(applyFilters(displayTasks, filters), sortKey),
+    [displayTasks, filters, sortKey],
   );
 
   const hierarchyRows = useMemo(() => {
-    const filtered = filterTasksKeepingAncestors(tasksWithParents, (t) =>
+    const filtered = filterTasksKeepingAncestors(displayTasks, (t) =>
       matchesFilters(t, filters),
     );
     const tree = buildTaskTree(filtered);
     return flattenVisible(tree, collapsedIds);
-  }, [tasksWithParents, filters, collapsedIds]);
+  }, [displayTasks, filters, collapsedIds]);
 
   const visibleTasks = isHierarchy
     ? hierarchyRows.map((r) => r.task)
@@ -380,11 +401,40 @@ export default function ScheduleBoard({
     dropTarget: nestDropTarget,
     onTitlePointerDown,
   } = useHierarchyNestDrag({
-    enabled: isHierarchy,
-    tasks: tasksWithParents,
+    enabled: isHierarchy && !isReplayMode,
+    tasks: displayTasks,
     chartRef: scrollRef,
     onNest: applyNest,
   });
+
+  // Replay 플레이헤드: 타임라인 셀 시작 위치 측정
+  useLayoutEffect(() => {
+    if (!isReplayMode) return;
+    const root = scrollRef.current;
+    if (!root) return;
+
+    const measure = () => {
+      const cell = root.querySelector<HTMLElement>("[data-timeline-zoom]");
+      if (!cell) return;
+      const rootRect = root.getBoundingClientRect();
+      const cellRect = cell.getBoundingClientRect();
+      setMeasuredPlayheadBase(
+        cellRect.left - rootRect.left + root.scrollLeft,
+      );
+    };
+
+    measure();
+    root.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      root.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, [isReplayMode, columnWidth, visibleColumns, visibleTasks.length]);
+
+  const playheadOffset = isReplayMode
+    ? measuredPlayheadBase + replay.playheadLeftInTimeline
+    : 0;
 
   const toggleCollapse = (taskId: string) => {
     const next = new Set(collapsedIds);
@@ -493,11 +543,14 @@ export default function ScheduleBoard({
         filters={filters}
         members={members}
         tags={tags}
+        isReplayMode={isReplayMode}
         onViewModeChange={(mode) => {
+          if (isReplayMode) return;
           setViewMode(mode);
           persist({ viewMode: mode });
         }}
         onBoardLayoutChange={(layout) => {
+          if (isReplayMode) return;
           setBoardLayout(layout);
           clearBoardDragState();
           persist({ boardLayout: layout });
@@ -516,13 +569,48 @@ export default function ScheduleBoard({
           persist({ filters: next });
         }}
         onAddTask={() => setEditingTarget(null)}
+        onReplayModeChange={(enabled) => {
+          if (enabled) {
+            setViewModeBeforeReplay(viewMode);
+            setViewMode("week");
+            persist({ viewMode: "week" });
+            setReplaySessionId((id) => id + 1);
+            setIsReplayMode(true);
+            clearBoardDragState();
+            return;
+          }
+          setIsReplayMode(false);
+          if (viewModeBeforeReplay) {
+            setViewMode(viewModeBeforeReplay);
+            persist({ viewMode: viewModeBeforeReplay });
+            setViewModeBeforeReplay(null);
+          }
+        }}
       />
+
+      {isReplayMode ? (
+        <>
+          <ReplayControls
+            playing={replay.clock.playing}
+            playheadLabel={replay.playheadLabel}
+            stepUnit={replay.stepUnit}
+            onTogglePlay={replay.clock.toggle}
+            onStepBack={replay.stepBack}
+            onStepForward={replay.stepForward}
+            onStepUnitChange={replay.setStepUnit}
+          />
+          {replay.loading ? (
+            <p className="text-xs text-zinc-500">변경 이력 불러오는 중…</p>
+          ) : null}
+        </>
+      ) : null}
 
       <div
         ref={scrollRef}
         data-schedule-chart
-        className="overflow-x-auto rounded border border-zinc-300 dark:border-zinc-700"
+        className="relative overflow-x-auto rounded border border-zinc-300 dark:border-zinc-700"
       >
+        <ReplayPlayhead left={playheadOffset} visible={isReplayMode} />
         <table className="w-max min-w-full border-collapse text-sm">
           <thead>
             <tr>
@@ -551,6 +639,21 @@ export default function ScheduleBoard({
                 }
                 onCollapseLate={(date) =>
                   patchDayExpand(date, { late: false })
+                }
+                onSeekClick={
+                  isReplayMode
+                    ? (clientX) => {
+                        const root = scrollRef.current;
+                        if (!root) return;
+                        const rootRect = root.getBoundingClientRect();
+                        const leftInTimeline =
+                          clientX -
+                          rootRect.left +
+                          root.scrollLeft -
+                          measuredPlayheadBase;
+                        replay.seekByTimelineLeft(leftInTimeline);
+                      }
+                    : undefined
                 }
               />
             </tr>
@@ -627,7 +730,9 @@ export default function ScheduleBoard({
                     className={
                       nestDraggingId === task.id || draggingId === task.id
                         ? "opacity-50"
-                        : undefined
+                        : replay.highlightTaskId === task.id
+                          ? "bg-rose-50/80 dark:bg-rose-950/30"
+                          : undefined
                     }
                   >
                     <TaskMetaCells
@@ -635,13 +740,17 @@ export default function ScheduleBoard({
                       projectId={project.id}
                       members={members}
                       visibleColumns={visibleColumns}
-                      onEdit={(t) => setEditingTarget(t.id)}
+                      onEdit={
+                        isReplayMode ? () => undefined : (t) => setEditingTarget(t.id)
+                      }
                       dragMode={
-                        isHierarchy
-                          ? "nest"
-                          : canReorder
-                            ? "reorder"
-                            : "none"
+                        isReplayMode
+                          ? "none"
+                          : isHierarchy
+                            ? "nest"
+                            : canReorder
+                              ? "reorder"
+                              : "none"
                       }
                       dragTitle={
                         isHierarchy
@@ -682,6 +791,7 @@ export default function ScheduleBoard({
                       onNestPointerDown={(e) =>
                         onTitlePointerDown(task.id, e)
                       }
+                      readOnly={isReplayMode}
                     />
                     <TimelineCells
                       projectId={project.id}
@@ -691,6 +801,7 @@ export default function ScheduleBoard({
                       viewMode={viewMode}
                       dayLayouts={dayLayouts}
                       sessionExpands={daySessionExpands}
+                      readOnly={isReplayMode}
                     />
                   </tr>
                 );
@@ -701,20 +812,24 @@ export default function ScheduleBoard({
                 colSpan={metaHeaders.length + columns.length}
                 className="border border-zinc-300 px-2 py-2 text-center text-xs text-zinc-500 dark:border-zinc-700"
               >
-                <button
-                  type="button"
-                  onClick={() => setEditingTarget(null)}
-                  className="hover:underline"
-                >
-                  [Add New Work]
-                </button>
+                {isReplayMode ? (
+                  <span>Replay 모드에서는 업무를 추가할 수 없습니다</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEditingTarget(null)}
+                    className="hover:underline"
+                  >
+                    [Add New Work]
+                  </button>
+                )}
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      {editingTask !== undefined ? (
+      {editingTask !== undefined && !isReplayMode ? (
         <TaskForm
           projectId={project.id}
           members={members}

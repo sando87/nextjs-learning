@@ -1,9 +1,21 @@
 import { createClient } from "@/lib/supabase/server";
 import { getProfilesByIds } from "@/lib/schedule/profiles-store";
+import {
+  fieldChangeRows,
+  insertScheduleChangeEvents,
+} from "@/lib/schedule/schedule-change-events-store";
 import { getWorkLogsByTaskIds } from "@/lib/schedule/work-logs-store";
 import { computeSortOrderUpdates } from "@/lib/schedule/task-sort-order";
 import { isDescendantOf } from "@/lib/schedule/task-tree";
 import type { Tag, Task, TaskStatus, WorkLog } from "./types";
+
+async function currentActorId(): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
 
 type TaskRow = {
   id: string;
@@ -186,6 +198,29 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
   }
 
   const row = data as TaskRow;
+  const actorId = await currentActorId();
+  await insertScheduleChangeEvents(
+    fieldChangeRows(
+      {
+        projectId: row.project_id,
+        entityType: "task",
+        entityId: row.id,
+        taskId: row.id,
+        actorId,
+      },
+      "created",
+      {
+        title: { next: row.title },
+        status: { next: row.status },
+        assignee_id: { next: row.assignee_id },
+        start_date: { next: row.start_date },
+        end_date: { next: row.end_date },
+        priority: { next: row.priority },
+        parent_id: { next: row.parent_id },
+      },
+    ),
+  );
+
   let assignee = null;
   if (row.assignee_id) {
     const profiles = await getProfilesByIds([row.assignee_id]);
@@ -209,6 +244,18 @@ export async function updateTask(
   input: UpdateTaskInput,
 ): Promise<Task> {
   const supabase = await createClient();
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("tasks")
+    .select(TASK_SELECT)
+    .eq("id", taskId)
+    .single();
+
+  if (fetchError || !existing) {
+    throw new Error(fetchError?.message ?? "업무를 찾을 수 없습니다");
+  }
+
+  const before = existing as TaskRow;
   const payload: {
     title?: string;
     assignee_id?: string | null;
@@ -246,6 +293,28 @@ export async function updateTask(
   }
 
   const row = data as TaskRow;
+  const actorId = await currentActorId();
+  await insertScheduleChangeEvents(
+    fieldChangeRows(
+      {
+        projectId: row.project_id,
+        entityType: "task",
+        entityId: row.id,
+        taskId: row.id,
+        actorId,
+      },
+      "updated",
+      {
+        title: { old: before.title, next: row.title },
+        status: { old: before.status, next: row.status },
+        assignee_id: { old: before.assignee_id, next: row.assignee_id },
+        start_date: { old: before.start_date, next: row.start_date },
+        end_date: { old: before.end_date, next: row.end_date },
+        priority: { old: before.priority, next: row.priority },
+      },
+    ),
+  );
+
   let assignee = null;
   if (row.assignee_id) {
     const profiles = await getProfilesByIds([row.assignee_id]);
@@ -257,6 +326,42 @@ export async function updateTask(
 
 export async function deleteTask(taskId: string): Promise<void> {
   const supabase = await createClient();
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("tasks")
+    .select(TASK_SELECT)
+    .eq("id", taskId)
+    .maybeSingle();
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  if (existing) {
+    const row = existing as TaskRow;
+    const actorId = await currentActorId();
+    await insertScheduleChangeEvents(
+      fieldChangeRows(
+        {
+          projectId: row.project_id,
+          entityType: "task",
+          entityId: row.id,
+          taskId: row.id,
+          actorId,
+        },
+        "deleted",
+        {
+          title: { old: row.title },
+          status: { old: row.status },
+          assignee_id: { old: row.assignee_id },
+          start_date: { old: row.start_date },
+          end_date: { old: row.end_date },
+          priority: { old: row.priority },
+          parent_id: { old: row.parent_id },
+        },
+      ),
+    );
+  }
 
   const { error } = await supabase.from("tasks").delete().eq("id", taskId);
 
@@ -390,6 +495,23 @@ export async function setTaskParent(
   if (!updated) {
     throw new Error("상위 업무 변경이 반영되지 않았습니다");
   }
+
+  const actorId = await currentActorId();
+  await insertScheduleChangeEvents(
+    fieldChangeRows(
+      {
+        projectId,
+        entityType: "task",
+        entityId: taskId,
+        taskId,
+        actorId,
+      },
+      "updated",
+      {
+        parent_id: { old: task.parentId, next: parentId },
+      },
+    ),
+  );
 }
 
 export async function getTaskById(taskId: string): Promise<Task | null> {

@@ -52,6 +52,27 @@ export type WorkLog = {
   note: string | null;
 };
 
+export const SCHEDULE_ENTITY_TYPES = ["task", "work_log"] as const;
+export type ScheduleEntityType = (typeof SCHEDULE_ENTITY_TYPES)[number];
+
+export const SCHEDULE_EVENT_TYPES = ["created", "updated", "deleted"] as const;
+export type ScheduleEventType = (typeof SCHEDULE_EVENT_TYPES)[number];
+
+export type ScheduleChangeEvent = {
+  id: string;
+  projectId: string;
+  entityType: ScheduleEntityType;
+  entityId: string;
+  taskId: string | null;
+  actorId: string | null;
+  eventType: ScheduleEventType;
+  field: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  /** ISO timestamptz */
+  createdAt: string;
+};
+
 export type Task = {
   id: string;
   projectId: string;
